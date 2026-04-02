@@ -81,31 +81,30 @@ export function MarketingFooter() {
           <div>
             <h3 className="text-sm font-semibold text-white/90">Contact</h3>
             <a
-              href="mailto:hello@korathryve.com"
+              href="mailto:korathryveco@gmail.com"
               className="mt-3 block text-sm text-white/70 transition hover:text-white"
             >
-              hello@korathryve.com
+              korathryveco@gmail.com
             </a>
-            <a href="tel:+639085374367" className="mt-2 block text-sm text-white/70 transition hover:text-white">
-              +63 908 537 4367
+            <a href="tel:+6588137298" className="mt-2 block text-sm text-white/70 transition hover:text-white">
+              +65 88137298
+
             </a>
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white/90">Follow Us</h3>
             <div className="mt-3 flex gap-5 text-sm text-white/70">
-              <a href="#" className="transition hover:text-white">
+              <a href="https://www.facebook.com/profile.php?id=61585226572304" className="transition hover:text-white">
+                Facebook
+              </a>
+              <a href="https://www.instagram.com/korathryveco" className="transition hover:text-white">
                 Instagram
-              </a>
-              <a href="#" className="transition hover:text-white">
-                LinkedIn
-              </a>
-              <a href="#" className="transition hover:text-white">
-                Twitter
               </a>
             </div>
           </div>
         </div>
         <p className="mt-6 text-center text-xs text-white/45">© 2026 Kora Thryve & Co. All rights reserved.</p>
+        <p className="mt-6 text-center text-xs text-white/45">Created by Idle Digital.</p>
       </SectionContainer>
     </footer>
   )
