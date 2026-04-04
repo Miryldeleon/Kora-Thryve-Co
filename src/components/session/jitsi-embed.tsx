@@ -13,6 +13,7 @@ type JitsiEmbedProps = {
   participantRole?: 'teacher' | 'student'
   className?: string
   compact?: boolean
+  onConferenceJoined?: () => void
 }
 
 type SessionState = 'connecting' | 'waiting' | 'live' | 'issue' | 'ended'
@@ -84,8 +85,11 @@ export default function JitsiEmbed({
   authToken,
   roomName,
   displayName,
+  meetingLabel,
+  participantRole,
   className,
   compact = false,
+  onConferenceJoined,
 }: JitsiEmbedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const apiRef = useRef<{
@@ -98,6 +102,7 @@ export default function JitsiEmbed({
   const [issueText, setIssueText] = useState<string | null>(null)
   const [remoteParticipants, setRemoteParticipants] = useState(0)
   const [instanceKey, setInstanceKey] = useState(0)
+  const hasReportedJoinRef = useRef(false)
 
   const safeDisplayName = useMemo(() => normalizeDisplayName(displayName), [displayName])
   const meetingDomain = useMemo(() => domain.trim(), [domain])
@@ -155,6 +160,7 @@ export default function JitsiEmbed({
       setSessionState('connecting')
       setIssueText(null)
       setRemoteParticipants(0)
+      hasReportedJoinRef.current = false
 
       const api = new window.JitsiMeetExternalAPI(meetingDomain, {
         roomName: meetingPath,
@@ -173,6 +179,10 @@ export default function JitsiEmbed({
         const remote = Math.max(0, total - 1)
         setRemoteParticipants(remote)
         setSessionState(remote > 0 ? 'live' : 'waiting')
+        if (!hasReportedJoinRef.current) {
+          hasReportedJoinRef.current = true
+          onConferenceJoined?.()
+        }
       })
 
       api.addListener('participantJoined', () => {
@@ -240,7 +250,7 @@ export default function JitsiEmbed({
         scriptEl.parentNode.removeChild(scriptEl)
       }
     }
-  }, [authToken, instanceKey, meetingDomain, meetingPath, safeDisplayName])
+  }, [authToken, instanceKey, meetingDomain, meetingPath, onConferenceJoined, safeDisplayName])
 
   if (!meetingDomain) {
     return (
@@ -266,6 +276,11 @@ export default function JitsiEmbed({
             >
               {status.label}
             </span>
+            {participantRole && (
+              <span className="inline-flex rounded-full border border-slate-600 bg-slate-900/70 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-200">
+                {participantRole}
+              </span>
+            )}
             {remoteParticipants > 0 && (
               <span className="text-xs text-slate-300">Participants: {remoteParticipants + 1}</span>
             )}
@@ -282,6 +297,7 @@ export default function JitsiEmbed({
         {(sessionState !== 'live' || issueText) && (
           <p className="mt-1.5 text-xs text-slate-400">{issueText || status.hint}</p>
         )}
+        {meetingLabel && <p className="mt-1 text-xs text-slate-400">Session: {meetingLabel}</p>}
         {isPublicMeetInstance && sessionState !== 'live' && (
           <p className="mt-1 text-xs text-slate-400">
             Public Jitsi mode: teacher should join first so students can enter smoothly.

@@ -4,8 +4,8 @@ import TeachingTools from '@/components/session/teaching-tools'
 import { getFutureJitsiAuthToken, getJitsiPublicConfig } from '@/lib/session/jitsi'
 import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
 import { bookingStatusBadgeClass, brandUi } from '@/lib/ui/branding'
-import JitsiEmbed from '@/components/session/jitsi-embed'
 import SessionNotesPanel from '@/components/session/session-notes-panel'
+import SessionMeetingStage from '@/components/session/session-meeting-stage'
 import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -157,31 +157,20 @@ export default async function SessionRoomPage({
     role: currentUserRole,
   })
 
-  const { error: attendanceUpsertError } = await supabase
-    .from('session_attendance')
-    .upsert(
-      {
-        booking_id: booking.id,
-        user_id: user.id,
-        role: currentUserRole,
-        joined_at: new Date().toISOString(),
-      },
-      { onConflict: 'booking_id,user_id' }
-    )
-
   const { data: attendanceData, error: attendanceLoadError } = await supabase
     .from('session_attendance')
     .select('booking_id, user_id, role, joined_at')
     .eq('booking_id', booking.id)
     .order('joined_at', { ascending: false })
 
-  const attendanceErrorMessage = attendanceUpsertError?.message || attendanceLoadError?.message
+  const attendanceErrorMessage = attendanceLoadError?.message
   const attendanceRows = ((attendanceData ?? []) as SessionAttendance[]).sort((a, b) => {
     if (a.role === b.role) {
       return new Date(b.joined_at).getTime() - new Date(a.joined_at).getTime()
     }
     return a.role === 'teacher' ? -1 : 1
   })
+  const teacherHasJoined = attendanceRows.some((row) => row.role === 'teacher')
 
   const { data: notesData, error: notesLoadError } = await supabase
     .from('session_notes')
@@ -257,17 +246,22 @@ export default async function SessionRoomPage({
                   This session has been completed. Live call is disabled in review mode.
                 </div>
               ) : (
-                <JitsiEmbed
-                  domain={jitsiConfig.domain}
-                  appId={jitsiConfig.appId}
-                  roomPrefix={jitsiConfig.roomPrefix}
-                  authToken={jitsiAuthToken}
-                  roomName={roomName}
-                  displayName={participantName}
-                  participantRole={isTeacher ? 'teacher' : 'student'}
-                  meetingLabel={formatDateTimeRange(booking.starts_at, booking.ends_at)}
-                  className="h-full min-h-[500px] flex-1"
-                  compact
+                <SessionMeetingStage
+                  bookingId={booking.id}
+                  isTeacher={isTeacher}
+                  initialTeacherJoined={teacherHasJoined}
+                  jitsi={{
+                    domain: jitsiConfig.domain,
+                    appId: jitsiConfig.appId,
+                    roomPrefix: jitsiConfig.roomPrefix,
+                    authToken: jitsiAuthToken,
+                    roomName,
+                    displayName: participantName,
+                    participantRole: isTeacher ? 'teacher' : 'student',
+                    meetingLabel: formatDateTimeRange(booking.starts_at, booking.ends_at),
+                    className: 'h-full min-h-[500px] flex-1',
+                    compact: true,
+                  }}
                 />
               )}
             </article>
