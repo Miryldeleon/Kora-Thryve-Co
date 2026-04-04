@@ -269,6 +269,26 @@ export default function JitsiEmbed({
         }
       })
 
+      api.addListener('authStatusChanged', (...args) => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] authStatusChanged', {
+            meetingPath,
+            participantRole,
+            raw: args,
+          })
+        }
+      })
+
+      api.addListener('conferenceFailed', (...args) => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] conferenceFailed', {
+            meetingPath,
+            participantRole,
+            raw: args,
+          })
+        }
+      })
+
       api.addListener('suspendDetected', (...args) => {
         if (isDevelopment) {
           console.log('[jitsi-embed] suspendDetected', { meetingPath, participantRole, raw: args })

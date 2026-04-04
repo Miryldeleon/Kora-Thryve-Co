@@ -167,6 +167,8 @@ export default async function SessionRoomPage({
     bookingId: booking.id,
     userId: user.id,
     role: currentUserRole,
+    displayName: participantName,
+    roomName,
   })
   if (process.env.NODE_ENV !== 'production') {
     console.log('[session-page] jitsi config resolved', {
