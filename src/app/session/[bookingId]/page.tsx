@@ -171,14 +171,31 @@ export default async function SessionRoomPage({
     ? booking.teacher_name || 'Teacher'
     : booking.student_name || 'Student'
   const jitsiConfig = getJitsiPublicConfig()
-  const jitsiAuthToken = await getFutureJitsiAuthToken({
-    bookingId: booking.id,
-    userId: user.id,
-    role: currentUserRole,
-    displayName: participantName,
-    roomName,
-    roomPrefix: jitsiConfig.roomPrefix,
-  })
+  const isHostedMode = jitsiConfig.domain === '8x8.vc' || Boolean(jitsiConfig.appId)
+  let jitsiAuthToken: string | null = null
+  let jitsiTokenErrorMessage: string | null = null
+
+  try {
+    jitsiAuthToken = await getFutureJitsiAuthToken({
+      bookingId: booking.id,
+      userId: user.id,
+      role: currentUserRole,
+      displayName: participantName,
+      roomName,
+      roomPrefix: jitsiConfig.roomPrefix,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown Jitsi token error'
+    console.log('[session-page] jitsi token generation failed', {
+      bookingId: booking.id,
+      role: currentUserRole,
+      domain: jitsiConfig.domain,
+      hasAppId: Boolean(jitsiConfig.appId),
+      message,
+    })
+    jitsiTokenErrorMessage =
+      'Live meeting is temporarily unavailable. Please refresh in a moment or contact support.'
+  }
   if (process.env.NODE_ENV !== 'production') {
     const normalizedRoom = normalizeRoomName(roomName)
     const prefixedRoom = jitsiConfig.roomPrefix
@@ -287,6 +304,11 @@ export default async function SessionRoomPage({
               {isCompletedReviewMode ? (
                 <div className="flex min-h-[380px] flex-1 items-center justify-center rounded-2xl border border-slate-700 bg-[#131a24] px-5 text-center text-sm text-slate-300 lg:min-h-0">
                   This session has been completed. Live call is disabled in review mode.
+                </div>
+              ) : isHostedMode && (jitsiTokenErrorMessage || !jitsiAuthToken) ? (
+                <div className="flex min-h-[380px] flex-1 items-center justify-center rounded-2xl border border-rose-800/70 bg-[#1d1417] px-5 text-center text-sm text-rose-100 lg:min-h-0">
+                  {jitsiTokenErrorMessage ||
+                    'Live meeting is unavailable because secure meeting access could not be established.'}
                 </div>
               ) : (
                 <SessionMeetingStage

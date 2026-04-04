@@ -60,6 +60,22 @@ function base64Url(input: Buffer | string) {
     .replace(/\//g, '_')
 }
 
+function normalizePrivateKey(privateKeyRaw: string) {
+  return privateKeyRaw
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+}
+
+function privateKeyDiagnostics(privateKey: string) {
+  return {
+    startsWithBegin: privateKey.startsWith('-----BEGIN PRIVATE KEY-----'),
+    endsWithEnd: privateKey.endsWith('-----END PRIVATE KEY-----'),
+    length: privateKey.length,
+  }
+}
+
 function signJwtRs256(payload: Record<string, unknown>, kid: string, privateKey: string) {
   const header = {
     alg: 'RS256',
@@ -75,7 +91,8 @@ function signJwtRs256(payload: Record<string, unknown>, kid: string, privateKey:
   signer.update(unsignedToken)
   signer.end()
 
-  const signature = signer.sign(privateKey)
+  const keyObject = crypto.createPrivateKey({ key: privateKey, format: 'pem' })
+  const signature = signer.sign(keyObject)
   return `${unsignedToken}.${base64Url(signature)}`
 }
 
@@ -110,7 +127,8 @@ export async function getFutureJitsiAuthToken(
   }
 
   const keyId = (process.env.JITSI_KEY_ID ?? '').trim()
-  const privateKey = (process.env.JITSI_PRIVATE_KEY ?? '').replace(/\\n/g, '\n').trim()
+  const privateKeyRaw = process.env.JITSI_PRIVATE_KEY ?? ''
+  const privateKey = normalizePrivateKey(privateKeyRaw)
   const audience = (process.env.JITSI_AUDIENCE ?? 'jitsi').trim()
   const issuer = (process.env.JITSI_ISSUER ?? 'chat').trim()
   const ttlSeconds = Number(process.env.JITSI_TOKEN_TTL_SECONDS ?? '7200')
@@ -159,6 +177,7 @@ export async function getFutureJitsiAuthToken(
   }
 
   if (process.env.NODE_ENV !== 'production') {
+    const keyDiagnostics = privateKeyDiagnostics(privateKey)
     console.log('[jitsi-token] token request', {
       bookingId: context.bookingId,
       userId: context.userId,
@@ -167,6 +186,7 @@ export async function getFutureJitsiAuthToken(
       appId,
       roomClaim: safeRoom,
       kid: keyId,
+      keyDiagnostics,
     })
   }
 
@@ -185,13 +205,13 @@ export async function getFutureJitsiAuthToken(
     }
     return token
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[jitsi-token] token generation failed', {
-        bookingId: context.bookingId,
-        role: context.role,
-        message: error instanceof Error ? error.message : 'Unknown token signing error',
-      })
-    }
+    const keyDiagnostics = privateKeyDiagnostics(privateKey)
+    console.log('[jitsi-token] token generation failed', {
+      bookingId: context.bookingId,
+      role: context.role,
+      message: error instanceof Error ? error.message : 'Unknown token signing error',
+      keyDiagnostics,
+    })
     throw error
   }
 }
