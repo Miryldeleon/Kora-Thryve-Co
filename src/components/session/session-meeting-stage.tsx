@@ -39,8 +39,13 @@ export default function SessionMeetingStage({
   const [statusError, setStatusError] = useState<string | null>(null)
 
   const canEnterLiveMeeting = useMemo(() => isTeacher || teacherHasJoined, [isTeacher, teacherHasJoined])
+  const isDevelopment = process.env.NODE_ENV !== 'production'
 
   const markJoined = useCallback(async () => {
+    if (isDevelopment) {
+      console.log('[session-meeting-stage] onConferenceJoined fired', { bookingId, isTeacher })
+    }
+
     try {
       const response = await fetch('/api/session-attendance', {
         method: 'POST',
@@ -50,12 +55,26 @@ export default function SessionMeetingStage({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        if (isDevelopment) {
+          console.log('[session-meeting-stage] attendance POST failed', {
+            bookingId,
+            error: payload?.error ?? 'Unknown error',
+          })
+        }
         setStatusError(payload?.error || 'Unable to record session join activity.')
+        return
+      }
+
+      if (isDevelopment) {
+        console.log('[session-meeting-stage] attendance POST ok', { bookingId })
       }
     } catch {
+      if (isDevelopment) {
+        console.log('[session-meeting-stage] attendance POST threw', { bookingId })
+      }
       setStatusError('Unable to record session join activity.')
     }
-  }, [bookingId])
+  }, [bookingId, isDevelopment, isTeacher])
 
   const loadTeacherPresence = useCallback(async () => {
     if (isTeacher || teacherHasJoined) return
@@ -72,19 +91,49 @@ export default function SessionMeetingStage({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        if (isDevelopment) {
+          console.log('[session-meeting-stage] attendance GET failed', {
+            bookingId,
+            error: payload?.error ?? 'Unknown error',
+          })
+        }
         setStatusError(payload?.error || 'Unable to check teacher availability right now.')
         return
       }
 
       const payload = (await response.json()) as AttendanceStatusResponse
+      if (isDevelopment) {
+        console.log('[session-meeting-stage] attendance GET ok', {
+          bookingId,
+          teacherHasJoined: payload.teacherHasJoined,
+          teacherJoinedAt: payload.teacherJoinedAt,
+        })
+      }
       setTeacherHasJoined(Boolean(payload.teacherHasJoined))
       setStatusError(null)
     } catch {
+      if (isDevelopment) {
+        console.log('[session-meeting-stage] attendance GET threw', { bookingId })
+      }
       setStatusError('Unable to check teacher availability right now.')
     } finally {
       setIsCheckingStatus(false)
     }
-  }, [bookingId, isTeacher, teacherHasJoined])
+  }, [bookingId, isDevelopment, isTeacher, teacherHasJoined])
+
+  useEffect(() => {
+    if (!isDevelopment || isTeacher || teacherHasJoined) return
+    console.log('[session-meeting-stage] student gate active', { bookingId, teacherHasJoined })
+  }, [bookingId, isDevelopment, isTeacher, teacherHasJoined])
+
+  useEffect(() => {
+    if (!isDevelopment || !isTeacher) return
+    console.log('[session-meeting-stage] teacher path rendering Jitsi iframe', {
+      bookingId,
+      canEnterLiveMeeting,
+      teacherHasJoined,
+    })
+  }, [bookingId, canEnterLiveMeeting, isDevelopment, isTeacher, teacherHasJoined])
 
   useEffect(() => {
     if (isTeacher || teacherHasJoined) return

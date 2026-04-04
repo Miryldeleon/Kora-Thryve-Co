@@ -6,6 +6,19 @@ type BookingAccessRow = {
   teacher_id: string
   student_id: string
   status: string
+  starts_at: string
+}
+
+const EARLY_JOIN_WINDOW_MS = 12 * 60 * 60 * 1000
+
+function hasValidTeacherJoin(teacherJoinedAt: string | null, bookingStartsAt: string) {
+  if (!teacherJoinedAt) return false
+
+  const joinedAtMs = new Date(teacherJoinedAt).getTime()
+  const startsAtMs = new Date(bookingStartsAt).getTime()
+
+  if (!Number.isFinite(joinedAtMs) || !Number.isFinite(startsAtMs)) return false
+  return joinedAtMs >= startsAtMs - EARLY_JOIN_WINDOW_MS
 }
 
 async function loadAuthorizedBooking(bookingId: string) {
@@ -20,7 +33,7 @@ async function loadAuthorizedBooking(bookingId: string) {
 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, teacher_id, student_id, status')
+    .select('id, teacher_id, student_id, status, starts_at')
     .eq('id', bookingId)
     .maybeSingle()
 
@@ -70,9 +83,19 @@ export async function GET(request: Request) {
     }
 
     const teacherJoinedAt = teacherAttendance?.[0]?.joined_at ?? null
+    const teacherHasJoined = hasValidTeacherJoin(teacherJoinedAt, access.booking.starts_at)
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[session-attendance][GET]', {
+        bookingId,
+        teacherJoinedAt,
+        bookingStartsAt: access.booking.starts_at,
+        teacherHasJoined,
+      })
+    }
 
     return NextResponse.json({
-      teacherHasJoined: Boolean(teacherJoinedAt),
+      teacherHasJoined,
       teacherJoinedAt,
     })
   } catch {
@@ -123,6 +146,15 @@ export async function POST(request: Request) {
 
     if (upsertError) {
       return NextResponse.json({ error: upsertError.message }, { status: 400 })
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[session-attendance][POST]', {
+        bookingId,
+        userId: user.id,
+        role,
+        joinedAt: new Date().toISOString(),
+      })
     }
 
     return NextResponse.json({ ok: true })

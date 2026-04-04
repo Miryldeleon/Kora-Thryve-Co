@@ -129,6 +129,14 @@ export default function JitsiEmbed({
     let sizeObserver: ResizeObserver | null = null
 
     if (!meetingDomain || !containerRef.current) return
+    if (isDevelopment) {
+      console.log('[jitsi-embed] iframe mount requested', {
+        meetingDomain,
+        meetingPath,
+        participantRole,
+        hasJwt: Boolean(authToken),
+      })
+    }
 
     const cleanup = () => {
       apiRef.current?.dispose()
@@ -173,12 +181,26 @@ export default function JitsiEmbed({
       })
 
       apiRef.current = api
+      if (isDevelopment) {
+        console.log('[jitsi-embed] api ready', {
+          meetingDomain,
+          meetingPath,
+          participantRole,
+        })
+      }
 
       api.addListener('videoConferenceJoined', () => {
         const total = api.getNumberOfParticipants?.() ?? 1
         const remote = Math.max(0, total - 1)
         setRemoteParticipants(remote)
         setSessionState(remote > 0 ? 'live' : 'waiting')
+        if (isDevelopment) {
+          console.log('[jitsi-embed] videoConferenceJoined', {
+            meetingDomain,
+            meetingPath,
+            participantRole,
+          })
+        }
         if (!hasReportedJoinRef.current) {
           hasReportedJoinRef.current = true
           onConferenceJoined?.()
@@ -202,39 +224,117 @@ export default function JitsiEmbed({
       })
 
       api.addListener('readyToClose', () => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] readyToClose', { meetingPath, participantRole })
+        }
         setSessionState('ended')
       })
 
       api.addListener('videoConferenceLeft', () => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] videoConferenceLeft', { meetingPath, participantRole })
+        }
         setSessionState('ended')
       })
 
+      api.addListener('participantRoleChanged', (...args) => {
+        if (isDevelopment) {
+          const maybePayload = args[0] as { role?: string } | undefined
+          console.log('[jitsi-embed] participantRoleChanged', {
+            meetingPath,
+            participantRole,
+            jitsiRole: maybePayload?.role ?? 'unknown',
+            raw: args,
+          })
+        }
+      })
+
+      api.addListener('conferenceCreatedTimestamp', (...args) => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] conferenceCreatedTimestamp', {
+            meetingPath,
+            participantRole,
+            raw: args,
+          })
+        }
+      })
+
+      api.addListener('peerConnectionFailure', (...args) => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] peerConnectionFailure', {
+            meetingPath,
+            participantRole,
+            raw: args,
+          })
+        }
+      })
+
+      api.addListener('suspendDetected', (...args) => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] suspendDetected', { meetingPath, participantRole, raw: args })
+        }
+      })
+
       api.addListener('cameraError', () => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] cameraError', { meetingPath, participantRole })
+        }
         setSessionState('issue')
         setIssueText('Camera access issue detected. Check browser permissions.')
       })
 
       api.addListener('micError', () => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] micError', { meetingPath, participantRole })
+        }
         setSessionState('issue')
         setIssueText('Microphone access issue detected. Check browser permissions.')
       })
 
       api.addListener('errorOccurred', (...args) => {
         const maybeError = args[0] as { message?: string } | undefined
+        if (isDevelopment) {
+          console.log('[jitsi-embed] errorOccurred', {
+            meetingPath,
+            participantRole,
+            message: maybeError?.message ?? 'unknown',
+            raw: args,
+          })
+        }
         setSessionState('issue')
         setIssueText(maybeError?.message || 'A session issue was detected.')
       })
     }
 
     if (window.JitsiMeetExternalAPI) {
+      if (isDevelopment) {
+        console.log('[jitsi-embed] external_api already present', {
+          meetingDomain,
+          participantRole,
+        })
+      }
       init()
     } else {
       scriptEl = document.createElement('script')
       scriptEl.src = `https://${meetingDomain}/external_api.js`
       scriptEl.async = true
-      scriptEl.onload = () => init()
+      scriptEl.onload = () => {
+        if (isDevelopment) {
+          console.log('[jitsi-embed] external_api loaded', {
+            meetingDomain,
+            participantRole,
+          })
+        }
+        init()
+      }
       scriptEl.onerror = () => {
         if (!cancelled) {
+          if (isDevelopment) {
+            console.log('[jitsi-embed] external_api failed to load', {
+              meetingDomain,
+              participantRole,
+            })
+          }
           setSessionState('issue')
           setIssueText('Unable to load Jitsi session tools for this domain.')
         }
@@ -250,7 +350,16 @@ export default function JitsiEmbed({
         scriptEl.parentNode.removeChild(scriptEl)
       }
     }
-  }, [authToken, instanceKey, meetingDomain, meetingPath, onConferenceJoined, safeDisplayName])
+  }, [
+    authToken,
+    instanceKey,
+    isDevelopment,
+    meetingDomain,
+    meetingPath,
+    onConferenceJoined,
+    participantRole,
+    safeDisplayName,
+  ])
 
   if (!meetingDomain) {
     return (

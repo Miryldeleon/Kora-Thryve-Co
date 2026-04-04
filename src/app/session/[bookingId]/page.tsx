@@ -46,6 +46,18 @@ type SessionAttendance = {
   joined_at: string
 }
 
+const EARLY_JOIN_WINDOW_MS = 12 * 60 * 60 * 1000
+
+function hasValidTeacherJoin(joinedAt: string | null, bookingStartsAt: string) {
+  if (!joinedAt) return false
+
+  const joinedAtMs = new Date(joinedAt).getTime()
+  const startsAtMs = new Date(bookingStartsAt).getTime()
+
+  if (!Number.isFinite(joinedAtMs) || !Number.isFinite(startsAtMs)) return false
+  return joinedAtMs >= startsAtMs - EARLY_JOIN_WINDOW_MS
+}
+
 function activityRoleBadgeClass(role: 'teacher' | 'student') {
   if (role === 'teacher') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
   return 'border-teal-200 bg-teal-50 text-teal-700'
@@ -156,6 +168,15 @@ export default async function SessionRoomPage({
     userId: user.id,
     role: currentUserRole,
   })
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[session-page] jitsi config resolved', {
+      bookingId: booking.id,
+      role: currentUserRole,
+      domain: jitsiConfig.domain,
+      hasAppId: Boolean(jitsiConfig.appId),
+      hasJwt: Boolean(jitsiAuthToken),
+    })
+  }
 
   const { data: attendanceData, error: attendanceLoadError } = await supabase
     .from('session_attendance')
@@ -170,7 +191,8 @@ export default async function SessionRoomPage({
     }
     return a.role === 'teacher' ? -1 : 1
   })
-  const teacherHasJoined = attendanceRows.some((row) => row.role === 'teacher')
+  const latestTeacherJoin = attendanceRows.find((row) => row.role === 'teacher')?.joined_at ?? null
+  const teacherHasJoined = hasValidTeacherJoin(latestTeacherJoin, booking.starts_at)
 
   const { data: notesData, error: notesLoadError } = await supabase
     .from('session_notes')

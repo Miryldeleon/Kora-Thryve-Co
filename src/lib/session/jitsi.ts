@@ -11,12 +11,32 @@ export type JitsiPublicConfig = {
 }
 
 export function getJitsiPublicConfig(): JitsiPublicConfig {
+  const configuredDomain = (process.env.NEXT_PUBLIC_JITSI_DOMAIN ?? '').trim()
+  const configuredAppId = (process.env.NEXT_PUBLIC_JITSI_APP_ID ?? '').trim()
+  const configuredRoomPrefix = (process.env.NEXT_PUBLIC_JITSI_ROOM_PREFIX ?? '').trim()
+
+  // MVP public mode safeguard:
+  // If the config points to hosted/JaaS mode (8x8.vc + appId) but no JWT issuer
+  // is implemented yet, force plain meet.jit.si so hosts aren't redirected into
+  // Jitsi's login/moderator flow.
+  const shouldForcePublicMode =
+    (configuredDomain === '8x8.vc' || configuredAppId.length > 0) &&
+    process.env.NEXT_PUBLIC_JITSI_ALLOW_HOSTED_AUTH !== 'true'
+
+  if (shouldForcePublicMode) {
+    return {
+      domain: 'meet.jit.si',
+      appId: null,
+      roomPrefix: configuredRoomPrefix || null,
+    }
+  }
+
   return {
     // Keep public embed config in NEXT_PUBLIC_* vars.
     // Fallback keeps current MVP behavior working without extra setup.
-    domain: (process.env.NEXT_PUBLIC_JITSI_DOMAIN ?? '').trim() || 'meet.jit.si',
-    appId: (process.env.NEXT_PUBLIC_JITSI_APP_ID ?? '').trim() || null,
-    roomPrefix: (process.env.NEXT_PUBLIC_JITSI_ROOM_PREFIX ?? '').trim() || null,
+    domain: configuredDomain || 'meet.jit.si',
+    appId: configuredAppId || null,
+    roomPrefix: configuredRoomPrefix || null,
   }
 }
 
