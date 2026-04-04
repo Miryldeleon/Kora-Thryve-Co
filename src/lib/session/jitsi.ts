@@ -7,6 +7,7 @@ type JitsiTokenContext = {
   role: 'teacher' | 'student'
   displayName: string
   roomName: string
+  roomPrefix?: string | null
 }
 
 export type JitsiPublicConfig = {
@@ -44,6 +45,12 @@ function normalizeDisplayName(displayName: string) {
   return clean.slice(0, 60)
 }
 
+function buildRoomWithPrefix(roomName: string, roomPrefix?: string | null) {
+  const safeRoom = normalizeRoomName(roomName)
+  if (!roomPrefix) return safeRoom
+  return `${normalizeRoomName(roomPrefix)}-${safeRoom}`.slice(0, 160)
+}
+
 function base64Url(input: Buffer | string) {
   const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input, 'utf8')
   return buffer
@@ -70,6 +77,21 @@ function signJwtRs256(payload: Record<string, unknown>, kid: string, privateKey:
 
   const signature = signer.sign(privateKey)
   return `${unsignedToken}.${base64Url(signature)}`
+}
+
+function decodeUnsignedJwt(token: string) {
+  const [encodedHeader = '', encodedPayload = ''] = token.split('.')
+  const decodeSegment = (segment: string) => {
+    if (!segment) return null
+    const normalized = segment.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>
+  }
+
+  return {
+    header: decodeSegment(encodedHeader),
+    payload: decodeSegment(encodedPayload),
+  }
 }
 
 export async function getFutureJitsiAuthToken(
@@ -104,7 +126,7 @@ export async function getFutureJitsiAuthToken(
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000)
-  const safeRoom = normalizeRoomName(context.roomName)
+  const safeRoom = buildRoomWithPrefix(context.roomName, context.roomPrefix)
   const jwtPayload = {
     aud: audience,
     iss: issuer,
@@ -117,7 +139,21 @@ export async function getFutureJitsiAuthToken(
       user: {
         id: context.userId,
         name: normalizeDisplayName(context.displayName),
-        moderator: context.role === 'teacher' ? 'true' : 'false',
+        moderator: context.role === 'teacher',
+      },
+      room: {
+        regex: false,
+      },
+      features: {
+        livestreaming: 'false',
+        recording: 'false',
+        transcription: 'false',
+        'sip-inbound-call': 'false',
+        'sip-outbound-call': 'false',
+        'inbound-call': 'false',
+        'outbound-call': 'false',
+        'file-upload': 'false',
+        'list-visitors': 'false',
       },
     },
   }
@@ -129,7 +165,7 @@ export async function getFutureJitsiAuthToken(
       role: context.role,
       domain: publicConfig.domain,
       appId,
-      room: safeRoom,
+      roomClaim: safeRoom,
       kid: keyId,
     })
   }
@@ -137,10 +173,14 @@ export async function getFutureJitsiAuthToken(
   try {
     const token = signJwtRs256(jwtPayload, keyId, privateKey)
     if (process.env.NODE_ENV !== 'production') {
+      const decoded = decodeUnsignedJwt(token)
       console.log('[jitsi-token] token generation success', {
         bookingId: context.bookingId,
         role: context.role,
-        room: safeRoom,
+        roomClaim: safeRoom,
+        tokenPresent: Boolean(token),
+        tokenHeader: decoded.header,
+        tokenPayload: decoded.payload,
       })
     }
     return token

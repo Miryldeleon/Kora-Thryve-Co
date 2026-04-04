@@ -42,6 +42,25 @@ function normalizeDisplayName(displayName: string) {
   return clean.slice(0, 60)
 }
 
+function decodeJwtParts(token: string) {
+  try {
+    const [headerPart = '', payloadPart = ''] = token.split('.')
+    const decodeSegment = (segment: string) => {
+      if (!segment) return null
+      const normalized = segment.replace(/-/g, '+').replace(/_/g, '/')
+      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+      return JSON.parse(atob(padded)) as Record<string, unknown>
+    }
+
+    return {
+      header: decodeSegment(headerPart),
+      payload: decodeSegment(payloadPart),
+    }
+  } catch {
+    return { header: null, payload: null }
+  }
+}
+
 function statusUi(state: SessionState) {
   if (state === 'connecting') {
     return {
@@ -130,11 +149,16 @@ export default function JitsiEmbed({
 
     if (!meetingDomain || !containerRef.current) return
     if (isDevelopment) {
+      const decoded = authToken ? decodeJwtParts(authToken) : { header: null, payload: null }
       console.log('[jitsi-embed] iframe mount requested', {
         meetingDomain,
+        appId,
+        roomWithPrefix,
         meetingPath,
         participantRole,
         hasJwt: Boolean(authToken),
+        tokenHeader: decoded.header,
+        tokenPayload: decoded.payload,
       })
     }
 
@@ -184,8 +208,11 @@ export default function JitsiEmbed({
       if (isDevelopment) {
         console.log('[jitsi-embed] api ready', {
           meetingDomain,
+          appId,
+          roomWithPrefix,
           meetingPath,
           participantRole,
+          jwtPassedToEmbed: Boolean(authToken),
         })
       }
 
@@ -371,6 +398,7 @@ export default function JitsiEmbed({
       }
     }
   }, [
+    appId,
     authToken,
     instanceKey,
     isDevelopment,
@@ -378,6 +406,7 @@ export default function JitsiEmbed({
     meetingPath,
     onConferenceJoined,
     participantRole,
+    roomWithPrefix,
     safeDisplayName,
   ])
 

@@ -58,6 +58,14 @@ function hasValidTeacherJoin(joinedAt: string | null, bookingStartsAt: string) {
   return joinedAtMs >= startsAtMs - EARLY_JOIN_WINDOW_MS
 }
 
+function normalizeRoomName(roomName: string) {
+  return roomName
+    .replace(/[^a-zA-Z0-9/_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 160)
+}
+
 function activityRoleBadgeClass(role: 'teacher' | 'student') {
   if (role === 'teacher') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
   return 'border-teal-200 bg-teal-50 text-teal-700'
@@ -169,12 +177,23 @@ export default async function SessionRoomPage({
     role: currentUserRole,
     displayName: participantName,
     roomName,
+    roomPrefix: jitsiConfig.roomPrefix,
   })
   if (process.env.NODE_ENV !== 'production') {
+    const normalizedRoom = normalizeRoomName(roomName)
+    const prefixedRoom = jitsiConfig.roomPrefix
+      ? `${normalizeRoomName(jitsiConfig.roomPrefix)}-${normalizedRoom}`.slice(0, 160)
+      : normalizedRoom
+    const hostedPath = jitsiConfig.appId
+      ? `${normalizeRoomName(jitsiConfig.appId)}/${prefixedRoom}`
+      : prefixedRoom
     console.log('[session-page] jitsi config resolved', {
       bookingId: booking.id,
       role: currentUserRole,
       domain: jitsiConfig.domain,
+      appId: jitsiConfig.appId,
+      room: prefixedRoom,
+      meetingPath: hostedPath,
       hasAppId: Boolean(jitsiConfig.appId),
       hasJwt: Boolean(jitsiAuthToken),
     })
