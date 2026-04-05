@@ -24,6 +24,7 @@ type SessionMeetingStageProps = {
 type AttendanceStatusResponse = {
   teacherHasJoined: boolean
   teacherJoinedAt: string | null
+  teacherHasJoinedFalseReason?: string | null
 }
 
 const STUDENT_POLL_INTERVAL_MS = 5000
@@ -137,25 +138,37 @@ export default function SessionMeetingStage({
       )
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        const rawBody = await response.text()
+        const payload = JSON.parse(rawBody || '{}') as { error?: string }
         if (isDevelopment) {
           console.log('[session-meeting-stage] student gate fetch failure response', {
             bookingId,
             status: response.status,
-            error: payload?.error ?? 'Unknown error',
+            rawBody,
+            error: payload.error ?? 'Unknown error',
           })
         }
-        setStatusError(payload?.error || 'Unable to check teacher availability right now.')
+        setStatusError(payload.error || 'Unable to check teacher availability right now.')
         return
       }
 
-      const payload = (await response.json()) as AttendanceStatusResponse
+      const rawBody = await response.text()
+      const payload = JSON.parse(rawBody || '{}') as AttendanceStatusResponse
       if (isDevelopment) {
         console.log('[session-meeting-stage] student gate fetch result', {
           bookingId,
+          rawBody,
           teacherHasJoined: payload.teacherHasJoined,
           teacherJoinedAt: payload.teacherJoinedAt,
+          teacherHasJoinedFalseReason: payload.teacherHasJoinedFalseReason ?? null,
         })
+        if (payload.teacherJoinedAt && !payload.teacherHasJoined) {
+          console.log('[session-meeting-stage] teacherHasJoined false while attendance exists', {
+            bookingId,
+            teacherJoinedAt: payload.teacherJoinedAt,
+            teacherHasJoinedFalseReason: payload.teacherHasJoinedFalseReason ?? 'No reason provided',
+          })
+        }
       }
       setTeacherHasJoined(Boolean(payload.teacherHasJoined))
       setStatusError(null)

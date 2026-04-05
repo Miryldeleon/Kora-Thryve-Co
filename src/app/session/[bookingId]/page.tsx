@@ -46,18 +46,6 @@ type SessionAttendance = {
   joined_at: string
 }
 
-const EARLY_JOIN_WINDOW_MS = 12 * 60 * 60 * 1000
-
-function hasValidTeacherJoin(joinedAt: string | null, bookingStartsAt: string) {
-  if (!joinedAt) return false
-
-  const joinedAtMs = new Date(joinedAt).getTime()
-  const startsAtMs = new Date(bookingStartsAt).getTime()
-
-  if (!Number.isFinite(joinedAtMs) || !Number.isFinite(startsAtMs)) return false
-  return joinedAtMs >= startsAtMs - EARLY_JOIN_WINDOW_MS
-}
-
 function normalizeRoomName(roomName: string) {
   return roomName
     .replace(/[^a-zA-Z0-9/_-]/g, '-')
@@ -230,7 +218,17 @@ export default async function SessionRoomPage({
     return a.role === 'teacher' ? -1 : 1
   })
   const latestTeacherJoin = attendanceRows.find((row) => row.role === 'teacher')?.joined_at ?? null
-  const teacherHasJoined = hasValidTeacherJoin(latestTeacherJoin, booking.starts_at)
+  const teacherHasJoined = Boolean(latestTeacherJoin)
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[session-page] teacher gate seed from attendance', {
+      bookingId: booking.id,
+      role: currentUserRole,
+      latestTeacherJoin,
+      teacherHasJoined,
+      attendanceRowsCount: attendanceRows.length,
+    })
+  }
 
   const { data: notesData, error: notesLoadError } = await supabase
     .from('session_notes')

@@ -9,18 +9,6 @@ type BookingAccessRow = {
   starts_at: string
 }
 
-const EARLY_JOIN_WINDOW_MS = 12 * 60 * 60 * 1000
-
-function hasValidTeacherJoin(teacherJoinedAt: string | null, bookingStartsAt: string) {
-  if (!teacherJoinedAt) return false
-
-  const joinedAtMs = new Date(teacherJoinedAt).getTime()
-  const startsAtMs = new Date(bookingStartsAt).getTime()
-
-  if (!Number.isFinite(joinedAtMs) || !Number.isFinite(startsAtMs)) return false
-  return joinedAtMs >= startsAtMs - EARLY_JOIN_WINDOW_MS
-}
-
 async function loadAuthorizedBooking(bookingId: string) {
   const supabase = await createServerSupabaseClient()
   const {
@@ -83,21 +71,28 @@ export async function GET(request: Request) {
     }
 
     const teacherJoinedAt = teacherAttendance?.[0]?.joined_at ?? null
-    const teacherHasJoined = hasValidTeacherJoin(teacherJoinedAt, access.booking.starts_at)
+    const teacherHasJoined = Boolean(teacherJoinedAt)
+    const falseReason = teacherHasJoined
+      ? null
+      : teacherAttendance && teacherAttendance.length > 0
+        ? 'Teacher attendance row exists but joined_at is empty.'
+        : 'No teacher attendance rows found for this booking.'
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('[session-attendance][GET]', {
         bookingId,
         requesterRole: access.role,
+        rawTeacherAttendance: teacherAttendance ?? [],
         teacherJoinedAt,
-        bookingStartsAt: access.booking.starts_at,
         teacherHasJoined,
+        teacherHasJoinedFalseReason: falseReason,
       })
     }
 
     return NextResponse.json({
       teacherHasJoined,
       teacherJoinedAt,
+      teacherHasJoinedFalseReason: falseReason,
     })
   } catch {
     return NextResponse.json(
