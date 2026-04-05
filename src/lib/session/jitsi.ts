@@ -129,8 +129,8 @@ export async function getFutureJitsiAuthToken(
   const keyId = (process.env.JITSI_KEY_ID ?? '').trim()
   const privateKeyRaw = process.env.JITSI_PRIVATE_KEY ?? ''
   const privateKey = normalizePrivateKey(privateKeyRaw)
-  const audience = (process.env.JITSI_AUDIENCE ?? 'jitsi').trim()
-  const issuer = (process.env.JITSI_ISSUER ?? 'chat').trim()
+  const audience = 'jitsi'
+  const issuer = 'chat'
   const ttlSeconds = Number(process.env.JITSI_TOKEN_TTL_SECONDS ?? '7200')
 
   if (!keyId) {
@@ -145,11 +145,13 @@ export async function getFutureJitsiAuthToken(
 
   const nowSeconds = Math.floor(Date.now() / 1000)
   const safeRoom = buildRoomWithPrefix(context.roomName, context.roomPrefix)
+  const normalizedAppId = normalizeRoomName(appId)
+  const roomClaim = normalizedAppId ? `${normalizedAppId}/${safeRoom}` : safeRoom
   const jwtPayload = {
     aud: audience,
     iss: issuer,
     sub: appId,
-    room: safeRoom,
+    room: roomClaim,
     nbf: nowSeconds - 10,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
@@ -157,7 +159,7 @@ export async function getFutureJitsiAuthToken(
       user: {
         id: context.userId,
         name: normalizeDisplayName(context.displayName),
-        moderator: context.role === 'teacher',
+        moderator: context.role === 'teacher' ? 'true' : 'false',
       },
       room: {
         regex: false,
@@ -184,7 +186,7 @@ export async function getFutureJitsiAuthToken(
       role: context.role,
       domain: publicConfig.domain,
       appId,
-      roomClaim: safeRoom,
+      roomClaim,
       kid: keyId,
       keyDiagnostics,
     })
@@ -197,7 +199,7 @@ export async function getFutureJitsiAuthToken(
       console.log('[jitsi-token] token generation success', {
         bookingId: context.bookingId,
         role: context.role,
-        roomClaim: safeRoom,
+        roomClaim,
         tokenPresent: Boolean(token),
         tokenHeader: decoded.header,
         tokenPayload: decoded.payload,
