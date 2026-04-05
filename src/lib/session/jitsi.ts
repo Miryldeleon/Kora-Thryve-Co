@@ -96,21 +96,6 @@ function signJwtRs256(payload: Record<string, unknown>, kid: string, privateKey:
   return `${unsignedToken}.${base64Url(signature)}`
 }
 
-function decodeUnsignedJwt(token: string) {
-  const [encodedHeader = '', encodedPayload = ''] = token.split('.')
-  const decodeSegment = (segment: string) => {
-    if (!segment) return null
-    const normalized = segment.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
-    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>
-  }
-
-  return {
-    header: decodeSegment(encodedHeader),
-    payload: decodeSegment(encodedPayload),
-  }
-}
-
 export async function getFutureJitsiAuthToken(
   context: JitsiTokenContext
 ): Promise<string | null> {
@@ -144,14 +129,13 @@ export async function getFutureJitsiAuthToken(
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000)
-  const safeRoom = buildRoomWithPrefix(context.roomName, context.roomPrefix)
-  const normalizedAppId = normalizeRoomName(appId)
-  const roomClaim = normalizedAppId ? `${normalizedAppId}/${safeRoom}` : safeRoom
+  const jwtRoom = buildRoomWithPrefix(context.roomName, context.roomPrefix)
+  const moderator = context.role === 'teacher' ? 'true' : 'false'
   const jwtPayload = {
     aud: audience,
     iss: issuer,
     sub: appId,
-    room: roomClaim,
+    room: jwtRoom,
     nbf: nowSeconds - 10,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
@@ -159,7 +143,7 @@ export async function getFutureJitsiAuthToken(
       user: {
         id: context.userId,
         name: normalizeDisplayName(context.displayName),
-        moderator: context.role === 'teacher' ? 'true' : 'false',
+        moderator,
       },
       room: {
         regex: false,
@@ -186,8 +170,10 @@ export async function getFutureJitsiAuthToken(
       role: context.role,
       domain: publicConfig.domain,
       appId,
-      roomClaim,
       kid: keyId,
+      sub: appId,
+      room: jwtRoom,
+      moderator,
       keyDiagnostics,
     })
   }
@@ -195,14 +181,14 @@ export async function getFutureJitsiAuthToken(
   try {
     const token = signJwtRs256(jwtPayload, keyId, privateKey)
     if (process.env.NODE_ENV !== 'production') {
-      const decoded = decodeUnsignedJwt(token)
       console.log('[jitsi-token] token generation success', {
         bookingId: context.bookingId,
         role: context.role,
-        roomClaim,
+        kid: keyId,
+        sub: appId,
+        room: jwtRoom,
+        moderator,
         tokenPresent: Boolean(token),
-        tokenHeader: decoded.header,
-        tokenPayload: decoded.payload,
       })
     }
     return token

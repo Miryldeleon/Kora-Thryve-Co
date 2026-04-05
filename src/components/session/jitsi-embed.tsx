@@ -61,6 +61,28 @@ function decodeJwtParts(token: string) {
   }
 }
 
+function extractJwtLogClaims(token: string) {
+  const decoded = decodeJwtParts(token)
+  const header = (decoded.header ?? {}) as Record<string, unknown>
+  const payload = (decoded.payload ?? {}) as Record<string, unknown>
+  const payloadContext =
+    payload.context && typeof payload.context === 'object'
+      ? (payload.context as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const payloadUser =
+    payloadContext.user && typeof payloadContext.user === 'object'
+      ? (payloadContext.user as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  return {
+    kid: typeof header.kid === 'string' ? header.kid : null,
+    sub: typeof payload.sub === 'string' ? payload.sub : null,
+    room: typeof payload.room === 'string' ? payload.room : null,
+    moderator:
+      typeof payloadUser.moderator === 'string' ? payloadUser.moderator : null,
+  }
+}
+
 function statusUi(state: SessionState) {
   if (state === 'connecting') {
     return {
@@ -149,16 +171,17 @@ export default function JitsiEmbed({
 
     if (!meetingDomain || !containerRef.current) return
     if (isDevelopment) {
-      const decoded = authToken ? decodeJwtParts(authToken) : { header: null, payload: null }
+      const jwtClaims = authToken ? extractJwtLogClaims(authToken) : null
       console.log('[jitsi-embed] iframe mount requested', {
         meetingDomain,
         appId,
         roomWithPrefix,
         meetingPath,
+        iframeRoomName: meetingPath,
+        iframePath: `https://${meetingDomain}/${meetingPath}`,
         participantRole,
         hasJwt: Boolean(authToken),
-        tokenHeader: decoded.header,
-        tokenPayload: decoded.payload,
+        jwtClaims,
       })
     }
 
