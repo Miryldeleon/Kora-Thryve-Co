@@ -88,6 +88,7 @@ export async function GET(request: Request) {
     if (process.env.NODE_ENV !== 'production') {
       console.log('[session-attendance][GET]', {
         bookingId,
+        requesterRole: access.role,
         teacherJoinedAt,
         bookingStartsAt: access.booking.starts_at,
         teacherHasJoined,
@@ -134,17 +135,27 @@ export async function POST(request: Request) {
       )
     }
 
+    const joinedAtIso = new Date().toISOString()
     const { error: upsertError } = await supabase.from('session_attendance').upsert(
       {
         booking_id: bookingId,
         user_id: user.id,
         role,
-        joined_at: new Date().toISOString(),
+        joined_at: joinedAtIso,
       },
       { onConflict: 'booking_id,user_id' }
     )
 
     if (upsertError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[session-attendance][POST] failed', {
+          bookingId,
+          userId: user.id,
+          role,
+          joinedAt: joinedAtIso,
+          message: upsertError.message,
+        })
+      }
       return NextResponse.json({ error: upsertError.message }, { status: 400 })
     }
 
@@ -153,7 +164,7 @@ export async function POST(request: Request) {
         bookingId,
         userId: user.id,
         role,
-        joinedAt: new Date().toISOString(),
+        joinedAt: joinedAtIso,
       })
     }
 

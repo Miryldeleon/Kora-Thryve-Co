@@ -27,6 +27,8 @@ type AttendanceStatusResponse = {
 }
 
 const STUDENT_POLL_INTERVAL_MS = 5000
+const ATTENDANCE_POST_MAX_ATTEMPTS = 3
+const ATTENDANCE_POST_RETRY_DELAY_MS = 1000
 
 export default function SessionMeetingStage({
   bookingId,
@@ -43,57 +45,103 @@ export default function SessionMeetingStage({
 
   const markJoined = useCallback(async () => {
     if (isDevelopment) {
-      console.log('[session-meeting-stage] onConferenceJoined fired', { bookingId, isTeacher })
+      console.log('[session-meeting-stage] teacher conference joined callback fired', {
+        bookingId,
+        isTeacher,
+      })
     }
 
-    try {
-      const response = await fetch('/api/session-attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId }),
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    for (let attempt = 1; attempt <= ATTENDANCE_POST_MAX_ATTEMPTS; attempt += 1) {
+      try {
         if (isDevelopment) {
-          console.log('[session-meeting-stage] attendance POST failed', {
+          console.log('[session-meeting-stage] teacher attendance/session-start POST sent', {
             bookingId,
-            error: payload?.error ?? 'Unknown error',
+            attempt,
+            maxAttempts: ATTENDANCE_POST_MAX_ATTEMPTS,
           })
         }
-        setStatusError(payload?.error || 'Unable to record session join activity.')
-        return
-      }
 
-      if (isDevelopment) {
-        console.log('[session-meeting-stage] attendance POST ok', { bookingId })
+        const response = await fetch('/api/session-attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ bookingId }),
+        })
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+
+        if (!response.ok) {
+          if (isDevelopment) {
+            console.log('[session-meeting-stage] teacher attendance POST failure response', {
+              bookingId,
+              attempt,
+              status: response.status,
+              error: payload?.error ?? 'Unknown error',
+            })
+          }
+          if (attempt === ATTENDANCE_POST_MAX_ATTEMPTS) {
+            setStatusError(payload?.error || 'Unable to record session join activity.')
+            return
+          }
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, ATTENDANCE_POST_RETRY_DELAY_MS * attempt)
+          })
+          continue
+        }
+
+        if (isDevelopment) {
+          console.log('[session-meeting-stage] teacher attendance POST success response', {
+            bookingId,
+            attempt,
+            status: response.status,
+            payload,
+          })
+        }
+        setStatusError(null)
+        return
+      } catch {
+        if (isDevelopment) {
+          console.log('[session-meeting-stage] teacher attendance POST threw', {
+            bookingId,
+            attempt,
+          })
+        }
+        if (attempt === ATTENDANCE_POST_MAX_ATTEMPTS) {
+          setStatusError('Unable to record session join activity.')
+          return
+        }
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, ATTENDANCE_POST_RETRY_DELAY_MS * attempt)
+        })
       }
-    } catch {
-      if (isDevelopment) {
-        console.log('[session-meeting-stage] attendance POST threw', { bookingId })
-      }
-      setStatusError('Unable to record session join activity.')
     }
   }, [bookingId, isDevelopment, isTeacher])
 
   const loadTeacherPresence = useCallback(async () => {
     if (isTeacher || teacherHasJoined) return
 
+    if (isDevelopment) {
+      console.log('[session-meeting-stage] student gate fetch start', {
+        bookingId,
+        teacherHasJoined,
+      })
+    }
     setIsCheckingStatus(true)
     try {
       const response = await fetch(
-        `/api/session-attendance?bookingId=${encodeURIComponent(bookingId)}`,
+        `/api/session-attendance?bookingId=${encodeURIComponent(bookingId)}&ts=${Date.now()}`,
         {
           method: 'GET',
           cache: 'no-store',
+          credentials: 'include',
         }
       )
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
         if (isDevelopment) {
-          console.log('[session-meeting-stage] attendance GET failed', {
+          console.log('[session-meeting-stage] student gate fetch failure response', {
             bookingId,
+            status: response.status,
             error: payload?.error ?? 'Unknown error',
           })
         }
@@ -103,7 +151,7 @@ export default function SessionMeetingStage({
 
       const payload = (await response.json()) as AttendanceStatusResponse
       if (isDevelopment) {
-        console.log('[session-meeting-stage] attendance GET ok', {
+        console.log('[session-meeting-stage] student gate fetch result', {
           bookingId,
           teacherHasJoined: payload.teacherHasJoined,
           teacherJoinedAt: payload.teacherJoinedAt,
@@ -113,7 +161,7 @@ export default function SessionMeetingStage({
       setStatusError(null)
     } catch {
       if (isDevelopment) {
-        console.log('[session-meeting-stage] attendance GET threw', { bookingId })
+        console.log('[session-meeting-stage] student gate fetch threw', { bookingId })
       }
       setStatusError('Unable to check teacher availability right now.')
     } finally {
@@ -142,8 +190,19 @@ export default function SessionMeetingStage({
     const timer = window.setInterval(() => {
       void loadTeacherPresence()
     }, STUDENT_POLL_INTERVAL_MS)
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void loadTeacherPresence()
+      }
+    }
+    window.addEventListener('focus', onVisibilityOrFocus)
+    document.addEventListener('visibilitychange', onVisibilityOrFocus)
 
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onVisibilityOrFocus)
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus)
+    }
   }, [isTeacher, loadTeacherPresence, teacherHasJoined])
 
   if (!canEnterLiveMeeting) {
