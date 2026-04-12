@@ -52,6 +52,35 @@ export default async function AdminDashboardPage() {
             </a>
           </article>
         </section>
+
+        <section className="mt-4 grid gap-4 md:grid-cols-2">
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Shared Library</p>
+            <p className="mt-3 text-lg font-medium">Manage modules and folders</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Delete modules and folders from a dedicated admin-only page.
+            </p>
+            <a
+              href="/admin/modules"
+              className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              Go to modules
+            </a>
+          </article>
+          <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Group Classes</p>
+            <p className="mt-3 text-lg font-medium">Create recurring class templates</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Assign teachers, define recurrence rules, and enroll students.
+            </p>
+            <a
+              href="/admin/group-classes"
+              className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              Go to group classes
+            </a>
+          </article>
+        </section>
       </div>
     </main>
   )

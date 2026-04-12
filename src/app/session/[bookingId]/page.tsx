@@ -29,10 +29,16 @@ type BookingSession = {
 
 type SessionModule = {
   id: string
+  folder_id: string | null
   title: string
   description: string | null
   teacher_name: string | null
   storage_path: string
+}
+
+type SessionFolder = {
+  id: string
+  name: string
 }
 
 type SessionModuleWithUrl = SessionModule & {
@@ -244,15 +250,24 @@ export default async function SessionRoomPage({
 
   const { data: modulesData, error: modulesError } = await supabase
     .from('modules')
-    .select('id, title, description, teacher_name, storage_path')
-    .eq('teacher_id', booking.teacher_id)
+    .select('id, folder_id, title, description, teacher_name, storage_path')
     .order('created_at', { ascending: false })
 
   if (modulesError) {
     throw new Error(modulesError.message)
   }
 
+  const { data: folderData, error: folderError } = await supabase
+    .from('module_folders')
+    .select('id, name')
+    .order('created_at', { ascending: true })
+
+  if (folderError) {
+    throw new Error(folderError.message)
+  }
+
   const modules = (modulesData ?? []) as SessionModule[]
+  const folders = (folderData ?? []) as SessionFolder[]
   const modulesWithUrls: SessionModuleWithUrl[] = await Promise.all(
     modules.map(async (module) => {
       const { data: signedUrlData } = await supabase.storage
@@ -334,8 +349,10 @@ export default async function SessionRoomPage({
                   className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-3 lg:p-4"
                   bookingId={booking.id}
                   isTeacher={isTeacher}
+                  folders={folders}
                   modules={modulesWithUrls.map((module) => ({
                     id: module.id,
+                    folder_id: module.folder_id,
                     title: module.title,
                     description: module.description,
                     teacher_name: module.teacher_name,

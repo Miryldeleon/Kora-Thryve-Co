@@ -6,10 +6,16 @@ import ControlledPdfStage from './controlled-pdf-stage'
 
 type ToolModule = {
   id: string
+  folder_id: string | null
   title: string
   description: string | null
   teacher_name: string | null
   signedUrl: string | null
+}
+
+type ToolFolder = {
+  id: string
+  name: string
 }
 
 type LessonState = {
@@ -24,6 +30,7 @@ type LessonState = {
 type TeachingToolsProps = {
   bookingId: string
   isTeacher: boolean
+  folders: ToolFolder[]
   modules: ToolModule[]
   className?: string
 }
@@ -61,6 +68,7 @@ function clampRatio(value: number) {
 export default function TeachingTools({
   bookingId,
   isTeacher,
+  folders,
   modules,
   className,
 }: TeachingToolsProps) {
@@ -73,12 +81,45 @@ export default function TeachingTools({
     scrollLeftRatio: 0,
   })
   const [selectedModuleId, setSelectedModuleId] = useState<string>('')
+  const [selectedFolderId, setSelectedFolderId] = useState<string>('')
   const [whiteboardSnapshot, setWhiteboardSnapshot] = useState<string | null>(null)
   const [drawMode, setDrawMode] = useState<'draw' | 'erase'>('draw')
   const [lineWidth, setLineWidth] = useState(3)
   const [pageInput, setPageInput] = useState('1')
   const [totalPages, setTotalPages] = useState(1)
-  const effectiveSelectedModuleId = selectedModuleId || modules[0]?.id || ''
+  const folderNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    folders.forEach((folder) => map.set(folder.id, folder.name))
+    return map
+  }, [folders])
+  const hasUngroupedModules = useMemo(
+    () => modules.some((module) => !module.folder_id || !folderNameById.has(module.folder_id)),
+    [folderNameById, modules]
+  )
+  const folderFilterOptions = useMemo(() => {
+    const base = folders.map((folder) => ({ id: folder.id, name: folder.name }))
+    if (hasUngroupedModules) {
+      base.unshift({ id: '__ungrouped__', name: 'Ungrouped' })
+    }
+    return base
+  }, [folders, hasUngroupedModules])
+  const effectiveSelectedFolderId = useMemo(() => {
+    const exists = folderFilterOptions.some((option) => option.id === selectedFolderId)
+    if (exists) return selectedFolderId
+    return folderFilterOptions[0]?.id || ''
+  }, [folderFilterOptions, selectedFolderId])
+  const selectableModules = useMemo(() => {
+    if (!effectiveSelectedFolderId) return modules
+    if (effectiveSelectedFolderId === '__ungrouped__') {
+      return modules.filter((module) => !module.folder_id || !folderNameById.has(module.folder_id))
+    }
+    return modules.filter((module) => module.folder_id === effectiveSelectedFolderId)
+  }, [effectiveSelectedFolderId, folderNameById, modules])
+  const effectiveSelectedModuleId = useMemo(() => {
+    const exists = selectableModules.some((module) => module.id === selectedModuleId)
+    if (exists) return selectedModuleId
+    return selectableModules[0]?.id || ''
+  }, [selectableModules, selectedModuleId])
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const lessonRef = useRef(lessonState)
@@ -93,9 +134,11 @@ export default function TeachingTools({
     [lessonState.moduleId, modules]
   )
   const selectedModule = useMemo(
-    () => modules.find((module) => module.id === effectiveSelectedModuleId) ?? null,
-    [effectiveSelectedModuleId, modules]
+    () => selectableModules.find((module) => module.id === effectiveSelectedModuleId) ?? null,
+    [effectiveSelectedModuleId, selectableModules]
   )
+  const presentedFolderName =
+    !presentedModule?.folder_id ? 'Ungrouped' : folderNameById.get(presentedModule.folder_id) ?? 'Ungrouped'
 
   const broadcastEvent = useCallback(
     async (event: string, payload: Record<string, unknown>) => {
@@ -513,6 +556,7 @@ export default function TeachingTools({
                           Page {lessonState.page}
                           {isTeacher ? ` | Zoom ${lessonState.zoom}%` : ' | Synced view'}
                         </p>
+                        <p className="text-xs text-slate-500">Folder: {presentedFolderName}</p>
                       </div>
                       {!isTeacher && (
                         <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
@@ -544,14 +588,30 @@ export default function TeachingTools({
                     Tools
                   </p>
                   <div className="mt-2 space-y-2.5">
+                    <label className="block text-[11px] text-slate-400">Folder</label>
+                    <select
+                      value={effectiveSelectedFolderId}
+                      onChange={(event) => {
+                        setSelectedFolderId(event.target.value)
+                        setSelectedModuleId('')
+                      }}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-100"
+                    >
+                      {folderFilterOptions.length === 0 && <option value="">No folders available</option>}
+                      {folderFilterOptions.map((folderOption) => (
+                        <option key={folderOption.id} value={folderOption.id}>
+                          {folderOption.name}
+                        </option>
+                      ))}
+                    </select>
                     <label className="block text-[11px] text-slate-400">Selected module</label>
                     <select
                       value={effectiveSelectedModuleId}
                       onChange={(event) => setSelectedModuleId(event.target.value)}
                       className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-100"
                     >
-                      {modules.length === 0 && <option value="">No modules available</option>}
-                      {modules.map((module) => (
+                      {selectableModules.length === 0 && <option value="">No modules in this folder</option>}
+                      {selectableModules.map((module) => (
                         <option key={module.id} value={module.id}>
                           {module.title}
                         </option>

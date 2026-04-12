@@ -3,8 +3,8 @@ import { ReactNode } from 'react'
 
 const TEACHER_NAV = [
   { href: '/teacher/dashboard', label: 'Dashboard' },
+  { href: '/teacher/classes', label: 'Classes' },
   { href: '/teacher/modules', label: 'Modules' },
-  { href: '/teacher/bookings', label: 'Bookings' },
   { href: '/teacher/students', label: 'Students' },
   { href: '/teacher/availability', label: 'Availability' },
   { href: '/teacher/profile', label: 'Profile' },

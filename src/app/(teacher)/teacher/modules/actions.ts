@@ -14,6 +14,23 @@ function toModulesUrl(kind: 'error' | 'success', message: string) {
   return `/teacher/modules?${params.toString()}`
 }
 
+function resolveReturnPath(formData: FormData) {
+  const raw = String(formData.get('return_to') ?? '').trim()
+  if (!raw) return null
+  if (!raw.startsWith('/teacher/modules')) return null
+  return raw
+}
+
+function toResultUrl(
+  kind: 'error' | 'success',
+  message: string,
+  returnPath: string | null
+) {
+  if (!returnPath) return toModulesUrl(kind, message)
+  const separator = returnPath.includes('?') ? '&' : '?'
+  return `${returnPath}${separator}${new URLSearchParams({ [kind]: message }).toString()}`
+}
+
 function getFileFromFormData(formData: FormData) {
   const file = formData.get('file')
   if (!(file instanceof File)) {
@@ -38,6 +55,11 @@ function validateTitleAndDescription(title: string, description: string) {
   return null
 }
 
+function normalizeFolderId(value: FormDataEntryValue | null) {
+  const raw = String(value ?? '').trim()
+  return raw || null
+}
+
 async function resolveTeacherFullName(
   supabase: Awaited<ReturnType<typeof requireApprovedTeacher>>['supabase'],
   teacherId: string
@@ -57,26 +79,42 @@ async function resolveTeacherFullName(
 
 export async function uploadModule(formData: FormData) {
   const { supabase, user } = await requireApprovedTeacher()
+  const returnPath = resolveReturnPath(formData)
 
   const title = String(formData.get('title') ?? '').trim()
   const description = String(formData.get('description') ?? '').trim()
+  const folderId = normalizeFolderId(formData.get('folder_id'))
   const file = getFileFromFormData(formData)
 
   const validationError = validateTitleAndDescription(title, description)
   if (validationError) {
-    redirect(toModulesUrl('error', validationError))
+    redirect(toResultUrl('error', validationError, returnPath))
   }
 
   if (!file) {
-    redirect(toModulesUrl('error', 'Please upload a PDF file'))
+    redirect(toResultUrl('error', 'Please upload a PDF file', returnPath))
   }
 
   if (!isPdfFile(file)) {
-    redirect(toModulesUrl('error', 'Only PDF files are allowed'))
+    redirect(toResultUrl('error', 'Only PDF files are allowed', returnPath))
   }
 
   if (file.size > MAX_PDF_FILE_SIZE_BYTES) {
-    redirect(toModulesUrl('error', 'PDF exceeds 15MB limit'))
+    redirect(toResultUrl('error', 'PDF exceeds 15MB limit', returnPath))
+  }
+
+  if (folderId) {
+    const { data: folderRow, error: folderError } = await supabase
+      .from('module_folders')
+      .select('id')
+      .eq('id', folderId)
+      .maybeSingle()
+
+    if (folderError || !folderRow) {
+      redirect(
+        toResultUrl('error', folderError?.message ?? 'Selected folder was not found', returnPath)
+      )
+    }
   }
 
   const teacherName = await resolveTeacherFullName(supabase, user.id)
@@ -93,7 +131,7 @@ export async function uploadModule(formData: FormData) {
     })
 
   if (storageError) {
-    redirect(toModulesUrl('error', storageError.message))
+    redirect(toResultUrl('error', storageError.message, returnPath))
   }
 
   const { error: insertError } = await supabase.from('modules').insert({
@@ -106,30 +144,32 @@ export async function uploadModule(formData: FormData) {
     file_type: 'application/pdf',
     file_size: file.size,
     storage_path: storagePath,
+    folder_id: folderId,
   })
 
   if (insertError) {
     await supabase.storage.from(TEACHER_MODULES_BUCKET).remove([storagePath])
-    redirect(toModulesUrl('error', insertError.message))
+    redirect(toResultUrl('error', insertError.message, returnPath))
   }
 
   revalidatePath('/teacher/modules')
-  redirect(toModulesUrl('success', 'Module uploaded'))
+  redirect(toResultUrl('success', 'Module uploaded', returnPath))
 }
 
 export async function updateModuleMetadata(formData: FormData) {
   const { supabase, user } = await requireApprovedTeacher()
+  const returnPath = resolveReturnPath(formData)
   const moduleId = String(formData.get('module_id') ?? '').trim()
   const title = String(formData.get('title') ?? '').trim()
   const description = String(formData.get('description') ?? '').trim()
 
   if (!moduleId) {
-    redirect(toModulesUrl('error', 'Module id is required'))
+    redirect(toResultUrl('error', 'Module id is required', returnPath))
   }
 
   const validationError = validateTitleAndDescription(title, description)
   if (validationError) {
-    redirect(toModulesUrl('error', validationError))
+    redirect(toResultUrl('error', validationError, returnPath))
   }
 
   const { error } = await supabase
@@ -142,50 +182,76 @@ export async function updateModuleMetadata(formData: FormData) {
     .eq('teacher_id', user.id)
 
   if (error) {
-    redirect(toModulesUrl('error', error.message))
+    redirect(toResultUrl('error', error.message, returnPath))
   }
 
   revalidatePath('/teacher/modules')
-  redirect(toModulesUrl('success', 'Module updated'))
+  redirect(toResultUrl('success', 'Module updated', returnPath))
 }
 
-export async function deleteModule(formData: FormData) {
+export async function createModuleFolder(formData: FormData) {
   const { supabase, user } = await requireApprovedTeacher()
-  const moduleId = String(formData.get('module_id') ?? '').trim()
+  const returnPath = resolveReturnPath(formData)
+  const name = String(formData.get('name') ?? '').trim()
+  const parentFolderIdRaw = String(formData.get('parent_folder_id') ?? '').trim()
+  const parentFolderId = parentFolderIdRaw || null
 
-  if (!moduleId) {
-    redirect(toModulesUrl('error', 'Module id is required'))
+  if (!name) {
+    redirect(toResultUrl('error', 'Folder name is required', returnPath))
   }
 
-  const { data: moduleRow, error: moduleError } = await supabase
-    .from('modules')
-    .select('storage_path')
-    .eq('id', moduleId)
-    .eq('teacher_id', user.id)
-    .maybeSingle()
-
-  if (moduleError || !moduleRow) {
-    redirect(toModulesUrl('error', moduleError?.message ?? 'Module not found'))
+  if (name.length > 140) {
+    redirect(toResultUrl('error', 'Folder name must be 140 characters or fewer', returnPath))
   }
 
-  const { error: storageError } = await supabase.storage
-    .from(TEACHER_MODULES_BUCKET)
-    .remove([moduleRow.storage_path])
+  const { error } = await supabase.from('module_folders').insert({
+    id: crypto.randomUUID(),
+    created_by: user.id,
+    name,
+    parent_folder_id: parentFolderId,
+  })
 
-  if (storageError) {
-    redirect(toModulesUrl('error', storageError.message))
-  }
-
-  const { error: deleteError } = await supabase
-    .from('modules')
-    .delete()
-    .eq('id', moduleId)
-    .eq('teacher_id', user.id)
-
-  if (deleteError) {
-    redirect(toModulesUrl('error', deleteError.message))
+  if (error) {
+    redirect(toResultUrl('error', error.message, returnPath))
   }
 
   revalidatePath('/teacher/modules')
-  redirect(toModulesUrl('success', 'Module deleted'))
+  redirect(toResultUrl('success', 'Folder created', returnPath))
+}
+
+export async function moveModuleToFolder(formData: FormData) {
+  const { supabase } = await requireApprovedTeacher()
+  const returnPath = resolveReturnPath(formData)
+  const moduleId = String(formData.get('module_id') ?? '').trim()
+  const folderId = normalizeFolderId(formData.get('folder_id'))
+
+  if (!moduleId) {
+    redirect(toResultUrl('error', 'Module id is required', returnPath))
+  }
+
+  if (folderId) {
+    const { data: folderRow, error: folderError } = await supabase
+      .from('module_folders')
+      .select('id')
+      .eq('id', folderId)
+      .maybeSingle()
+
+    if (folderError || !folderRow) {
+      redirect(
+        toResultUrl('error', folderError?.message ?? 'Selected folder was not found', returnPath)
+      )
+    }
+  }
+
+  const { error } = await supabase.rpc('move_module_to_folder', {
+    p_module_id: moduleId,
+    p_folder_id: folderId,
+  })
+
+  if (error) {
+    redirect(toResultUrl('error', error.message, returnPath))
+  }
+
+  revalidatePath('/teacher/modules')
+  redirect(toResultUrl('success', 'Module folder updated', returnPath))
 }
