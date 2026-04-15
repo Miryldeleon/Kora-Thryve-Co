@@ -1,14 +1,56 @@
 import { formatDateTimeRange } from '@/lib/booking/format'
 import { requireApprovedStudent } from '@/lib/auth/student'
 import { brandUi } from '@/lib/ui/branding'
+import { formatIsoCalendarDate, getTodayIsoDateForTimezone } from '@/lib/group-classes/date'
 import Link from 'next/link'
 
-type StudentUpcomingSession = {
+type StudentUpcomingBookingRow = {
   id: string
   teacher_name: string | null
   starts_at: string
   ends_at: string
-  status: string
+}
+
+type StudentGroupParticipantRow = {
+  session_id: string
+}
+
+type StudentGroupSessionRow = {
+  id: string
+  template_id: string
+  session_date: string
+  start_time_local: string
+  end_time_local: string
+  status: 'scheduled' | 'completed' | 'cancelled' | string
+}
+
+type GroupTemplateRow = {
+  id: string
+  title: string
+  timezone: string | null
+}
+
+type StudentUpcomingSession =
+  | {
+      id: string
+      sessionType: 'one_on_one'
+      title: string
+      dateTimeLabel: string
+      sortKey: string
+      href: string
+    }
+  | {
+      id: string
+      sessionType: 'group'
+      title: string
+      dateTimeLabel: string
+      sortKey: string
+      href: null
+    }
+
+function sessionTypeBadgeClass(sessionType: StudentUpcomingSession['sessionType']) {
+  if (sessionType === 'group') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
+  return 'border-amber-200 bg-amber-50 text-amber-700'
 }
 
 type StudentRecommendedModule = {
@@ -23,7 +65,7 @@ export default async function StudentDashboardPage() {
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('id, teacher_name, starts_at, ends_at, status')
+    .select('id, teacher_name, starts_at, ends_at')
     .eq('student_id', user.id)
     .eq('status', 'confirmed')
     .gte('starts_at', new Date().toISOString())
@@ -44,7 +86,84 @@ export default async function StudentDashboardPage() {
     throw new Error(recommendedError.message)
   }
 
-  const upcomingSessions = (data ?? []) as StudentUpcomingSession[]
+  const bookingRows = (data ?? []) as StudentUpcomingBookingRow[]
+  const normalizedOneOnOneSessions: StudentUpcomingSession[] = bookingRows.map((booking) => ({
+    id: booking.id,
+    sessionType: 'one_on_one',
+    title: booking.teacher_name || 'Teacher',
+    dateTimeLabel: formatDateTimeRange(booking.starts_at, booking.ends_at),
+    sortKey: booking.starts_at,
+    href: `/session/${booking.id}`,
+  }))
+
+  const { data: groupParticipantData, error: groupParticipantError } = await supabase
+    .from('group_class_session_participants')
+    .select('session_id')
+    .eq('student_profile_id', user.id)
+    .eq('is_active', true)
+
+  if (groupParticipantError) {
+    throw new Error(groupParticipantError.message)
+  }
+
+  const groupSessionIds = Array.from(
+    new Set(((groupParticipantData ?? []) as StudentGroupParticipantRow[]).map((row) => row.session_id))
+  )
+
+  let groupSessionRows: StudentGroupSessionRow[] = []
+  if (groupSessionIds.length > 0) {
+    const { data: groupSessionData, error: groupSessionError } = await supabase
+      .from('group_class_sessions')
+      .select('id, template_id, session_date, start_time_local, end_time_local, status')
+      .eq('is_active', true)
+      .eq('status', 'scheduled')
+      .in('id', groupSessionIds)
+      .order('session_date', { ascending: true })
+      .order('start_time_local', { ascending: true })
+
+    if (groupSessionError) {
+      throw new Error(groupSessionError.message)
+    }
+
+    groupSessionRows = (groupSessionData ?? []) as StudentGroupSessionRow[]
+  }
+
+  const templateIds = Array.from(new Set(groupSessionRows.map((row) => row.template_id)))
+  let templateById = new Map<string, GroupTemplateRow>()
+  if (templateIds.length > 0) {
+    const { data: templateData, error: templateError } = await supabase
+      .from('group_class_templates')
+      .select('id, title, timezone')
+      .in('id', templateIds)
+
+    if (templateError) {
+      throw new Error(templateError.message)
+    }
+
+    templateById = new Map(
+      ((templateData ?? []) as GroupTemplateRow[]).map((template) => [template.id, template])
+    )
+  }
+
+  const normalizedGroupSessions: StudentUpcomingSession[] = groupSessionRows
+    .filter((session) => {
+      const timezone = templateById.get(session.template_id)?.timezone || 'UTC'
+      return session.session_date >= getTodayIsoDateForTimezone(timezone)
+    })
+    .map((session) => ({
+      id: session.id,
+      sessionType: 'group',
+      title: templateById.get(session.template_id)?.title || 'Group Session',
+      dateTimeLabel: `${formatIsoCalendarDate(session.session_date, {
+        dateStyle: 'medium',
+      })} | ${session.start_time_local} - ${session.end_time_local}`,
+      sortKey: `${session.session_date}T${session.start_time_local}`,
+      href: null,
+    }))
+
+  const upcomingSessions = [...normalizedOneOnOneSessions, ...normalizedGroupSessions].sort((a, b) =>
+    a.sortKey.localeCompare(b.sortKey)
+  )
   const recommendedModules = (recommendedData ?? []) as StudentRecommendedModule[]
   const nextSession = upcomingSessions[0]
 
@@ -93,23 +212,36 @@ export default async function StudentDashboardPage() {
         <article className={brandUi.section}>
           <div className="flex items-center justify-between">
             <h2 className={brandUi.sectionTitle}>Upcoming Session</h2>
-            <Link href="/student/sessions" className="text-sm font-medium text-[#8b7758]">
+            <Link href="/student/classes" className="text-sm font-medium text-[#8b7758]">
               View all
             </Link>
           </div>
           {!nextSession ? (
-            <p className="mt-4 text-sm text-slate-600">No confirmed sessions yet.</p>
+            <p className="mt-4 text-sm text-slate-600">No upcoming sessions yet.</p>
           ) : (
             <>
+              <span
+                className={`mt-4 inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionTypeBadgeClass(
+                  nextSession.sessionType
+                )}`}
+              >
+                {nextSession.sessionType === 'group' ? 'Group' : '1-on-1'}
+              </span>
               <p className="mt-4 text-base font-semibold text-slate-900">
-                {nextSession.teacher_name || 'Teacher'}
+                {nextSession.title}
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                {formatDateTimeRange(nextSession.starts_at, nextSession.ends_at)}
+                {nextSession.dateTimeLabel}
               </p>
-              <a href={`/session/${nextSession.id}`} className={`mt-4 ${brandUi.primaryButton}`}>
-                Join Session
-              </a>
+              {nextSession.href ? (
+                <a href={nextSession.href} className={`mt-4 ${brandUi.primaryButton}`}>
+                  Join Session
+                </a>
+              ) : (
+                <p className={`mt-4 ${brandUi.mutedCard}`}>
+                  Group live room access will be available in the next phase.
+                </p>
+              )}
             </>
           )}
         </article>

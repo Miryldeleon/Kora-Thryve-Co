@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
+import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
+import { createClient } from '@supabase/supabase-js'
+
 
 type TeacherClassesPageProps = {
   searchParams: Promise<{
@@ -98,9 +101,7 @@ function classStatusBadgeClass(status: string) {
 }
 
 function formatGroupDate(sessionDate: string) {
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(
-    new Date(`${sessionDate}T00:00:00.000Z`)
-  )
+  return formatIsoCalendarDate(sessionDate, { dateStyle: 'medium' })
 }
 
 function formatGroupTime(startTimeLocal: string, endTimeLocal: string) {
@@ -119,50 +120,74 @@ function formatBookingTime(startsAt: string, endsAt: string) {
   return `${startText} - ${endText}`
 }
 
+function toLocalSessionSortValue(sessionDate: string, startTimeLocal: string) {
+  const normalized = `${sessionDate}${startTimeLocal}`.replace(/[^0-9]/g, '')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+}
+
+function createAdminClientOrNull() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) return null
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
+
 export default async function TeacherClassesPage({ searchParams }: TeacherClassesPageProps) {
   const { supabase, user } = await requireApprovedTeacher()
+  const adminClient = createAdminClientOrNull()
+  const groupReadClient = adminClient ?? supabase
+  const isDebug = process.env.NODE_ENV !== 'production'
   const { type } = await searchParams
   const activeFilter = toFilterType(type)
   const nowIso = new Date().toISOString()
-  const todayIsoDate = nowIso.slice(0, 10)
+  const queryClientPath: 'admin_service_role' | 'authenticated_fallback' = adminClient
+    ? 'admin_service_role'
+    : 'authenticated_fallback'
+  if (!adminClient && isDebug) {
+    console.warn('[teacher/classes] service role key missing, falling back to authenticated client')
+  }
 
-  const { data: groupSessionData, error: groupSessionError } = await supabase
+  const { data: teacherTemplateData, error: teacherTemplateError } = await groupReadClient
+    .from('group_class_templates')
+    .select('id, title')
+    .eq('teacher_id', user.id)
+  if (teacherTemplateError) {
+    throw new Error(teacherTemplateError.message)
+  }
+  const templateRows = (teacherTemplateData ?? []) as GroupTemplateRow[]
+  const templateById = new Map(templateRows.map((template) => [template.id, template.title]))
+
+  const { data: groupSessionData, error: groupSessionError } = await groupReadClient
     .from('group_class_sessions')
     .select('id, template_id, session_date, start_time_local, end_time_local, status')
-    .eq('is_active', true)
     .eq('teacher_id', user.id)
+    .eq('is_active', true)
     .eq('status', 'scheduled')
-    .gte('session_date', todayIsoDate)
     .order('session_date', { ascending: true })
     .order('start_time_local', { ascending: true })
-
   if (groupSessionError) {
     throw new Error(groupSessionError.message)
   }
 
-  const groupSessions = (groupSessionData ?? []) as GroupSessionRow[]
-  const groupSessionIds = groupSessions.map((session) => session.id)
-  const templateIds = Array.from(new Set(groupSessions.map((session) => session.template_id)))
-
-  let templateById = new Map<string, string>()
-  if (templateIds.length > 0) {
-    const { data: templateData, error: templateError } = await supabase
-      .from('group_class_templates')
-      .select('id, title')
-      .in('id', templateIds)
-
-    if (templateError) {
-      throw new Error(templateError.message)
-    }
-
-    templateById = new Map(
-      ((templateData ?? []) as GroupTemplateRow[]).map((template) => [template.id, template.title])
-    )
+  const rawGroupSessions = (groupSessionData ?? []) as GroupSessionRow[]
+  const groupSessions = rawGroupSessions
+  if (isDebug) {
+    console.log('[teacher/classes] group query debug', {
+      userId: user.id,
+      clientPath: queryClientPath,
+      rawTemplateCount: templateRows.length,
+      rawSessionCount: groupSessions.length,
+      sampleSessionIds: groupSessions.slice(0, 10).map((row) => row.id),
+    })
   }
 
+  const groupSessionIds = groupSessions.map((session) => session.id)
   const participantCountBySession = new Map<string, number>()
   if (groupSessionIds.length > 0) {
-    const { data: participantData, error: participantError } = await supabase
+    const { data: participantData, error: participantError } = await groupReadClient
       .from('group_class_session_participants')
       .select('session_id')
       .eq('is_active', true)
@@ -181,15 +206,14 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
   }
 
   const groupSessionItems: GroupSessionListItem[] = groupSessions.map((session) => {
-    const sortValue = Date.parse(`${session.session_date}T${session.start_time_local}:00Z`)
     return {
       id: session.id,
       dateLabel: formatGroupDate(session.session_date),
       timeLabel: formatGroupTime(session.start_time_local, session.end_time_local),
       status: session.status,
       participantCount: participantCountBySession.get(session.id) ?? 0,
-      href: `/teacher/group-sessions/${session.id}`,
-      sortValue: Number.isFinite(sortValue) ? sortValue : Number.MAX_SAFE_INTEGER,
+      href: `/group-session/${session.id}`,
+      sortValue: toLocalSessionSortValue(session.session_date, session.start_time_local),
     }
   })
 
@@ -217,6 +241,12 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
       }
     })
     .sort((a, b) => a.sortValue - b.sortValue)
+  if (isDebug) {
+    console.log('[teacher/classes] group cards debug', {
+      userId: user.id,
+      groupedCardCount: groupCards.length,
+    })
+  }
 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')

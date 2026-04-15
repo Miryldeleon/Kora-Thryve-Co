@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { addDaysToIsoDate, getTodayIsoDateForTimezone } from './date'
 
 type GroupClassTemplateRow = {
   id: string
@@ -36,22 +37,8 @@ export type GroupClassGenerationResult = {
   participantSnapshotsInserted: number
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function toUtcDateOnly(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
-}
-
-function addUtcDays(date: Date, days: number) {
-  return new Date(date.getTime() + days * DAY_MS)
-}
-
-function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10)
-}
-
 function fromIsoDate(isoDate: string) {
-  return new Date(isoDate + 'T00:00:00.000Z')
+  return new Date(isoDate + 'T12:00:00.000Z')
 }
 
 function nthWeekOfMonth(date: Date) {
@@ -95,11 +82,6 @@ export async function generateUpcomingGroupClassSessions(
     options?.templateIds && options.templateIds.length > 0
       ? Array.from(new Set(options.templateIds))
       : null
-  const startDate = toUtcDateOnly(new Date())
-  const endDate = addUtcDays(startDate, daysAhead)
-  const startIso = toIsoDate(startDate)
-  const endIso = toIsoDate(endDate)
-
   let templateQuery = supabase
     .from('group_class_templates')
     .select('id, teacher_id, timezone')
@@ -128,6 +110,28 @@ export async function generateUpcomingGroupClassSessions(
   }
 
   const templateIds = filteredTemplates.map((row) => row.id)
+  const templateWindowById = new Map<
+    string,
+    {
+      startIso: string
+      endIso: string
+    }
+  >()
+  let globalStartIso: string | null = null
+  let globalEndIso: string | null = null
+
+  for (const template of filteredTemplates) {
+    const startIso = getTodayIsoDateForTimezone(template.timezone || 'UTC')
+    const endIso = addDaysToIsoDate(startIso, daysAhead)
+    templateWindowById.set(template.id, { startIso, endIso })
+
+    if (!globalStartIso || startIso < globalStartIso) {
+      globalStartIso = startIso
+    }
+    if (!globalEndIso || endIso > globalEndIso) {
+      globalEndIso = endIso
+    }
+  }
 
   const { data: recurrenceData, error: recurrenceError } = await supabase
     .from('group_class_recurrence_rules')
@@ -182,10 +186,11 @@ export async function generateUpcomingGroupClassSessions(
 
   for (const template of filteredTemplates) {
     const templateRules = rulesByTemplate.get(template.id) ?? []
+    const window = templateWindowById.get(template.id)
     if (templateRules.length === 0) continue
+    if (!window) continue
 
-    for (let cursor = startDate; cursor <= endDate; cursor = addUtcDays(cursor, 1)) {
-      const sessionDate = toIsoDate(cursor)
+    for (let sessionDate = window.startIso; sessionDate <= window.endIso; sessionDate = addDaysToIsoDate(sessionDate, 1)) {
       for (const rule of templateRules) {
         if (!dateMatchesRule(sessionDate, rule)) continue
 
@@ -242,8 +247,8 @@ export async function generateUpcomingGroupClassSessions(
     .select('id, template_id')
     .eq('is_active', true)
     .in('template_id', templateIds)
-    .gte('session_date', startIso)
-    .lte('session_date', endIso)
+    .gte('session_date', globalStartIso ?? '0001-01-01')
+    .lte('session_date', globalEndIso ?? '9999-12-31')
 
   if (sessionLoadError) {
     throw new Error(sessionLoadError.message)

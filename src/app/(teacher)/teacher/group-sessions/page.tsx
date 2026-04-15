@@ -1,4 +1,5 @@
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
+import { formatIsoCalendarDate, getTodayIsoDateForTimezone } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
 
 type TeacherGroupSession = {
@@ -14,6 +15,7 @@ type TeacherGroupSession = {
 type GroupClassTemplate = {
   id: string
   title: string
+  timezone: string
 }
 
 type GroupSessionParticipant = {
@@ -28,8 +30,7 @@ function groupStatusBadgeClass(status: string) {
 }
 
 function formatSessionDate(sessionDate: string) {
-  const parsed = new Date(`${sessionDate}T00:00:00.000Z`)
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(parsed)
+  return formatIsoCalendarDate(sessionDate, { dateStyle: 'medium' })
 }
 
 function formatSessionTimeRange(start: string, end: string) {
@@ -38,7 +39,6 @@ function formatSessionTimeRange(start: string, end: string) {
 
 export default async function TeacherGroupSessionsPage() {
   const { supabase, user } = await requireApprovedTeacher()
-  const todayIsoDate = new Date().toISOString().slice(0, 10)
 
   const { data: sessionData, error: sessionError } = await supabase
     .from('group_class_sessions')
@@ -46,7 +46,6 @@ export default async function TeacherGroupSessionsPage() {
     .eq('is_active', true)
     .eq('teacher_id', user.id)
     .eq('status', 'scheduled')
-    .gte('session_date', todayIsoDate)
     .order('session_date', { ascending: true })
     .order('start_time_local', { ascending: true })
 
@@ -54,15 +53,15 @@ export default async function TeacherGroupSessionsPage() {
     throw new Error(sessionError.message)
   }
 
-  const sessions = (sessionData ?? []) as TeacherGroupSession[]
-  const templateIds = Array.from(new Set(sessions.map((session) => session.template_id)))
-  const sessionIds = sessions.map((session) => session.id)
+  const rawSessions = (sessionData ?? []) as TeacherGroupSession[]
+  const templateIds = Array.from(new Set(rawSessions.map((session) => session.template_id)))
 
   let templateById = new Map<string, string>()
+  let sessions = rawSessions
   if (templateIds.length > 0) {
     const { data: templateData, error: templateError } = await supabase
       .from('group_class_templates')
-      .select('id, title')
+      .select('id, title, timezone')
       .eq('is_active', true)
       .in('id', templateIds)
 
@@ -70,11 +69,20 @@ export default async function TeacherGroupSessionsPage() {
       throw new Error(templateError.message)
     }
 
-    templateById = new Map(
-      ((templateData ?? []) as GroupClassTemplate[]).map((template) => [template.id, template.title])
+    const templateRows = (templateData ?? []) as GroupClassTemplate[]
+    templateById = new Map(templateRows.map((template) => [template.id, template.title]))
+    const templateTimezoneById = new Map(
+      templateRows.map((template) => [template.id, template.timezone || 'UTC'])
     )
+
+    sessions = rawSessions.filter((session) => {
+      const timezone = templateTimezoneById.get(session.template_id) || 'UTC'
+      const todayIsoDate = getTodayIsoDateForTimezone(timezone)
+      return session.session_date >= todayIsoDate
+    })
   }
 
+  const sessionIds = sessions.map((session) => session.id)
   let participantCountBySession = new Map<string, number>()
   if (sessionIds.length > 0) {
     const { data: participantData, error: participantError } = await supabase

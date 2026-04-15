@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { randomUUID } from 'node:crypto'
 import { requireAdminAccess } from '@/lib/auth/admin'
+import { getTodayIsoDateForTimezone } from '@/lib/group-classes/date'
 import { generateUpcomingGroupClassSessions } from '@/lib/group-classes/generation'
 
 function resolveGroupClassesReturnPath(formData: FormData) {
@@ -38,6 +40,12 @@ function parseId(value: FormDataEntryValue | null) {
   return String(value ?? '').trim()
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  )
+}
+
 export async function createRecurringClass(formData: FormData) {
   const { supabase, user } = await requireAdminAccess()
   const returnPath = resolveGroupClassesReturnPath(formData)
@@ -65,7 +73,7 @@ export async function createRecurringClass(formData: FormData) {
       formData
         .getAll('student_ids')
         .map((value) => String(value).trim())
-        .filter((value) => value.length > 0)
+        .filter((value) => value.length > 0 && isUuid(value))
     )
   )
 
@@ -146,19 +154,31 @@ export async function createRecurringClass(formData: FormData) {
     redirect(toResultUrl(returnPath, 'error', ruleError.message))
   }
 
+  let enrollmentWarning: string | null = null
   if (selectedStudentIds.length > 0) {
+    const createdAt = new Date().toISOString()
     const rows = selectedStudentIds.map((studentId) => ({
+      id: randomUUID(),
       template_id: templateId,
       student_id: studentId,
       status: 'active',
       is_active: true,
+      created_at: createdAt,
       assigned_by_admin: user.id,
     }))
 
-    const { error: enrollmentError } = await supabase.from('group_class_enrollments').insert(rows)
+    const { error: enrollmentError } = await supabase
+      .from('group_class_enrollments')
+      .upsert(rows, { onConflict: 'template_id,student_id' })
 
     if (enrollmentError) {
-      redirect(toResultUrl(returnPath, 'error', enrollmentError.message))
+      console.error('[createRecurringClass] enrollment upsert failed', {
+        templateId,
+        selectedStudentCount: selectedStudentIds.length,
+        message: enrollmentError.message,
+      })
+      enrollmentWarning =
+        ' Class was created, but student enrollment could not be completed automatically.'
     }
   }
 
@@ -179,7 +199,8 @@ export async function createRecurringClass(formData: FormData) {
     String(generationResult.sessionsInserted) +
     ' session(s), ' +
     String(generationResult.participantSnapshotsInserted) +
-    ' participant snapshot(s)).'
+    ' participant snapshot(s)).' +
+    (enrollmentWarning ?? '')
 
   revalidatePath('/admin/group-classes')
   redirect(toResultUrl(returnPath, 'success', successMessage))
@@ -193,6 +214,18 @@ export async function deleteRecurringClass(formData: FormData) {
   if (classId.length === 0) {
     redirect(toResultUrl(returnPath, 'error', 'Class id is required'))
   }
+
+  const { data: templateRow, error: templateError } = await supabase
+    .from('group_class_templates')
+    .select('id, timezone')
+    .eq('id', classId)
+    .maybeSingle()
+
+  if (templateError || !templateRow) {
+    redirect(toResultUrl(returnPath, 'error', templateError?.message ?? 'Recurring class not found'))
+  }
+
+  const todayIso = getTodayIsoDateForTimezone(templateRow.timezone || 'UTC')
 
   const { error: classError } = await supabase
     .from('group_class_templates')
@@ -212,7 +245,42 @@ export async function deleteRecurringClass(formData: FormData) {
     redirect(toResultUrl(returnPath, 'error', scheduleError.message))
   }
 
+  const { data: futureSessionRows, error: futureSessionLoadError } = await supabase
+    .from('group_class_sessions')
+    .select('id')
+    .eq('template_id', classId)
+    .eq('is_active', true)
+    .gte('session_date', todayIso)
+
+  if (futureSessionLoadError) {
+    redirect(toResultUrl(returnPath, 'error', futureSessionLoadError.message))
+  }
+
+  const futureSessionIds = (futureSessionRows ?? []).map((row) => row.id)
+  if (futureSessionIds.length > 0) {
+    const { error: deactivateSessionsError } = await supabase
+      .from('group_class_sessions')
+      .update({ is_active: false })
+      .in('id', futureSessionIds)
+
+    if (deactivateSessionsError) {
+      redirect(toResultUrl(returnPath, 'error', deactivateSessionsError.message))
+    }
+
+    const { error: deactivateParticipantsError } = await supabase
+      .from('group_class_session_participants')
+      .update({ is_active: false })
+      .eq('is_active', true)
+      .in('session_id', futureSessionIds)
+
+    if (deactivateParticipantsError) {
+      redirect(toResultUrl(returnPath, 'error', deactivateParticipantsError.message))
+    }
+  }
+
   revalidatePath('/admin/group-classes')
+  revalidatePath('/teacher/classes')
+  revalidatePath('/teacher/group-sessions')
   redirect(toResultUrl(returnPath, 'success', 'Recurring class deleted'))
 }
 
@@ -225,6 +293,28 @@ export async function unenrollStudent(formData: FormData) {
     redirect(toResultUrl(returnPath, 'error', 'Enrollment id is required'))
   }
 
+  const { data: enrollmentRow, error: enrollmentLoadError } = await supabase
+    .from('group_class_enrollments')
+    .select('id, template_id, student_id')
+    .eq('id', enrollmentId)
+    .maybeSingle()
+
+  if (enrollmentLoadError || !enrollmentRow) {
+    redirect(toResultUrl(returnPath, 'error', enrollmentLoadError?.message ?? 'Enrollment not found'))
+  }
+
+  const { data: templateRow, error: templateError } = await supabase
+    .from('group_class_templates')
+    .select('timezone')
+    .eq('id', enrollmentRow.template_id)
+    .maybeSingle()
+
+  if (templateError || !templateRow) {
+    redirect(toResultUrl(returnPath, 'error', templateError?.message ?? 'Recurring class not found'))
+  }
+
+  const todayIso = getTodayIsoDateForTimezone(templateRow.timezone || 'UTC')
+
   const { error } = await supabase
     .from('group_class_enrollments')
     .update({ status: 'removed', is_active: false })
@@ -234,7 +324,35 @@ export async function unenrollStudent(formData: FormData) {
     redirect(toResultUrl(returnPath, 'error', error.message))
   }
 
+  const { data: futureSessionRows, error: futureSessionLoadError } = await supabase
+    .from('group_class_sessions')
+    .select('id')
+    .eq('template_id', enrollmentRow.template_id)
+    .eq('is_active', true)
+    .eq('status', 'scheduled')
+    .gte('session_date', todayIso)
+
+  if (futureSessionLoadError) {
+    redirect(toResultUrl(returnPath, 'error', futureSessionLoadError.message))
+  }
+
+  const futureSessionIds = (futureSessionRows ?? []).map((row) => row.id)
+  if (futureSessionIds.length > 0) {
+    const { error: deactivateParticipantsError } = await supabase
+      .from('group_class_session_participants')
+      .update({ is_active: false })
+      .eq('student_profile_id', enrollmentRow.student_id)
+      .eq('is_active', true)
+      .in('session_id', futureSessionIds)
+
+    if (deactivateParticipantsError) {
+      redirect(toResultUrl(returnPath, 'error', deactivateParticipantsError.message))
+    }
+  }
+
   revalidatePath('/admin/group-classes')
+  revalidatePath('/teacher/classes')
+  revalidatePath('/teacher/group-sessions')
   redirect(toResultUrl(returnPath, 'success', 'Student unenrolled'))
 }
 

@@ -7,6 +7,8 @@ type SessionMeetingStageProps = {
   bookingId: string
   isTeacher: boolean
   initialTeacherJoined: boolean
+  attendanceApiPath?: string
+  attendanceResourceParam?: string
   jitsi: {
     domain: string
     appId?: string | null
@@ -35,6 +37,8 @@ export default function SessionMeetingStage({
   bookingId,
   isTeacher,
   initialTeacherJoined,
+  attendanceApiPath = '/api/session-attendance',
+  attendanceResourceParam = 'bookingId',
   jitsi,
 }: SessionMeetingStageProps) {
   const [teacherHasJoined, setTeacherHasJoined] = useState(initialTeacherJoined)
@@ -62,11 +66,11 @@ export default function SessionMeetingStage({
           })
         }
 
-        const response = await fetch('/api/session-attendance', {
+        const response = await fetch(attendanceApiPath, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ bookingId }),
+          body: JSON.stringify({ [attendanceResourceParam]: bookingId }),
         })
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
@@ -115,7 +119,7 @@ export default function SessionMeetingStage({
         })
       }
     }
-  }, [bookingId, isDevelopment, isTeacher])
+  }, [attendanceApiPath, attendanceResourceParam, bookingId, isDevelopment, isTeacher])
 
   const loadTeacherPresence = useCallback(async () => {
     if (isTeacher || teacherHasJoined) return
@@ -129,7 +133,10 @@ export default function SessionMeetingStage({
     setIsCheckingStatus(true)
     try {
       const response = await fetch(
-        `/api/session-attendance?bookingId=${encodeURIComponent(bookingId)}&ts=${Date.now()}`,
+        `${attendanceApiPath}?${new URLSearchParams({
+          [attendanceResourceParam]: bookingId,
+          ts: String(Date.now()),
+        }).toString()}`,
         {
           method: 'GET',
           cache: 'no-store',
@@ -180,7 +187,14 @@ export default function SessionMeetingStage({
     } finally {
       setIsCheckingStatus(false)
     }
-  }, [bookingId, isDevelopment, isTeacher, teacherHasJoined])
+  }, [
+    attendanceApiPath,
+    attendanceResourceParam,
+    bookingId,
+    isDevelopment,
+    isTeacher,
+    teacherHasJoined,
+  ])
 
   useEffect(() => {
     if (!isDevelopment || isTeacher || teacherHasJoined) return

@@ -3,6 +3,7 @@ import { ReactNode } from 'react'
 
 const STUDENT_NAV = [
   { href: '/student/dashboard', label: 'Dashboard' },
+  { href: '/student/classes', label: 'Classes' },
   { href: '/student/modules', label: 'My Modules' },
   { href: '/student/booking', label: 'Book Session' },
   { href: '/student/profile', label: 'Profile' },

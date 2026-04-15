@@ -1,4 +1,5 @@
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
+import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
 import Link from 'next/link'
 
@@ -44,8 +45,7 @@ function groupStatusBadgeClass(status: string) {
 }
 
 function formatSessionDate(sessionDate: string) {
-  const parsed = new Date(`${sessionDate}T00:00:00.000Z`)
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(parsed)
+  return formatIsoCalendarDate(sessionDate, { dateStyle: 'full' })
 }
 
 function studentDisplayName(profile: StudentProfile | undefined, fallbackId: string) {

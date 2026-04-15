@@ -1,4 +1,5 @@
 import { requireAdminAccess } from '@/lib/auth/admin'
+import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { adminSignOut } from '../actions'
 import {
   createRecurringClass,
@@ -93,6 +94,10 @@ function summarizeSchedule(rule: GroupClassRecurrenceRule) {
   const weekday = WEEKDAY_OPTIONS.find((item) => item.value === rule.weekday)?.label || 'Unknown day'
   const week = WEEK_OF_MONTH_OPTIONS.find((item) => item.value === rule.week_of_month)?.label || 'Week'
   return week + ', ' + weekday + ', ' + rule.start_time_local + ' - ' + rule.end_time_local
+}
+
+function formatRuleWindowDate(isoDate: string) {
+  return formatIsoCalendarDate(isoDate, { dateStyle: 'medium' })
 }
 
 function statusBadgeClass(status: string) {
@@ -512,8 +517,8 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
                         <p className="mt-2 text-sm text-slate-700">{scheduleSummary}</p>
                         {activeSchedules.map((row) => (
                           <p key={row.id} className="mt-1 text-xs text-slate-600">
-                            Effective: {row.effective_from}
-                            {row.effective_to ? ' to ' + row.effective_to : ' onward'}
+                            Effective: {formatRuleWindowDate(row.effective_from)}
+                            {row.effective_to ? ' to ' + formatRuleWindowDate(row.effective_to) : ' onward'}
                           </p>
                         ))}
                       </section>
@@ -571,7 +576,8 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                           >
                             <p className="font-medium text-slate-900">
-                              {session.session_date} | {session.start_time_local} - {session.end_time_local}
+                              {formatIsoCalendarDate(session.session_date, { dateStyle: 'medium' })} |{' '}
+                              {session.start_time_local} - {session.end_time_local}
                             </p>
                             <p className="mt-1 text-xs text-slate-600">
                               Status: {session.status} | Participants:{' '}
