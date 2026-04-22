@@ -1,8 +1,8 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getSiteUrl } from '@/lib/site-url'
 
 type RoleHint = 'student' | 'teacher'
 
@@ -12,16 +12,7 @@ function normalizeRole(value: string | null): RoleHint | null {
 }
 
 function buildRecoveryRedirectUrl(origin: string) {
-  return `${origin}/reset-password`
-}
-
-async function resolveOrigin() {
-  const headerStore = await headers()
-  const forwardedHost = headerStore.get('x-forwarded-host')
-  const host = forwardedHost || headerStore.get('host') || 'localhost:3000'
-  const forwardedProto = headerStore.get('x-forwarded-proto')
-  const protocol = forwardedProto || (host.includes('localhost') ? 'http' : 'https')
-  return `${protocol}://${host}`
+  return new URL('/reset-password', origin).toString()
 }
 
 function buildReturnUrl(role: RoleHint | null, params: Record<string, string>) {
@@ -46,7 +37,7 @@ export async function sendPasswordResetEmail(formData: FormData) {
   }
 
   const supabase = await createServerSupabaseClient()
-  const origin = await resolveOrigin()
+  const origin = await getSiteUrl()
   const redirectTo = buildRecoveryRedirectUrl(origin)
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
