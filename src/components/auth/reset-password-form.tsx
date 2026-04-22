@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser'
 import { authUi } from './auth-shell'
+import { PasswordInput } from './password-input'
 
 type RecoveryState = 'checking' | 'ready' | 'invalid'
 
@@ -140,30 +141,20 @@ export default function ResetPasswordForm() {
           {successText}
         </p>
       )}
-      <label className="text-sm text-slate-600">
-        New password
-        <input
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          required
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className={authUi.input}
-        />
-      </label>
-      <label className="text-sm text-slate-600">
-        Confirm new password
-        <input
-          type="password"
-          name="confirm_password"
-          autoComplete="new-password"
-          required
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          className={authUi.input}
-        />
-      </label>
+      <PasswordInput
+        label="New password"
+        name="password"
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        autoComplete="new-password"
+      />
+      <PasswordInput
+        label="Confirm new password"
+        name="confirm_password"
+        value={confirmPassword}
+        onChange={(event) => setConfirmPassword(event.target.value)}
+        autoComplete="new-password"
+      />
       <button type="submit" disabled={isSaving} className={authUi.button}>
         {isSaving ? 'Updating password...' : 'Update password'}
       </button>
