@@ -347,7 +347,7 @@ export default async function SessionRoomPage({
               <div className="h-full min-h-0 rounded-2xl bg-[#111a27] p-1">
                 <TeachingTools
                   className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-3 lg:p-4"
-                  bookingId={booking.id}
+                  sessionId={booking.id}
                   isTeacher={isTeacher}
                   folders={folders}
                   modules={modulesWithUrls.map((module) => ({
@@ -403,7 +403,7 @@ export default async function SessionRoomPage({
           <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <h2 className={brandUi.sectionTitle}>Notes / Whiteboard Area</h2>
             <SessionNotesPanel
-              bookingId={booking.id}
+              resourceId={booking.id}
               initialNotes={savedNotes}
               isTeacher={isTeacher}
               isCompletedReviewMode={isCompletedReviewMode}

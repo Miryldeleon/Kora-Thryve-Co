@@ -5,10 +5,12 @@ import { brandUi } from '@/lib/ui/branding'
 import SessionNotesForm from './session-notes-form'
 
 type SessionNotesPanelProps = {
-  bookingId: string
+  resourceId: string
   initialNotes: string
   isTeacher: boolean
   isCompletedReviewMode: boolean
+  apiPath?: string
+  resourceParam?: string
 }
 
 type NotesResponse = {
@@ -17,10 +19,12 @@ type NotesResponse = {
 }
 
 export default function SessionNotesPanel({
-  bookingId,
+  resourceId,
   initialNotes,
   isTeacher,
   isCompletedReviewMode,
+  apiPath = '/api/session-notes',
+  resourceParam = 'bookingId',
 }: SessionNotesPanelProps) {
   const [notes, setNotes] = useState(initialNotes)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -35,10 +39,13 @@ export default function SessionNotesPanel({
 
     const refreshNotes = async () => {
       try {
-        const response = await fetch(`/api/session-notes?bookingId=${encodeURIComponent(bookingId)}`, {
-          method: 'GET',
-          cache: 'no-store',
-        })
+        const response = await fetch(
+          `${apiPath}?${new URLSearchParams({ [resourceParam]: resourceId }).toString()}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        )
         const result = (await response.json()) as NotesResponse
 
         if (!response.ok) {
@@ -68,7 +75,7 @@ export default function SessionNotesPanel({
         window.clearInterval(intervalId)
       }
     }
-  }, [bookingId, isEditable])
+  }, [apiPath, isEditable, resourceId, resourceParam])
 
   const handleSaved = (nextNotes: string) => {
     lastNotesRef.current = nextNotes
@@ -77,7 +84,13 @@ export default function SessionNotesPanel({
 
   if (isEditable) {
     return (
-      <SessionNotesForm bookingId={bookingId} initialNotes={notes} onSaved={handleSaved} />
+      <SessionNotesForm
+        resourceId={resourceId}
+        initialNotes={notes}
+        apiPath={apiPath}
+        resourceParam={resourceParam}
+        onSaved={handleSaved}
+      />
     )
   }
 

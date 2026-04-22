@@ -22,6 +22,7 @@ type GroupSession = {
 
 type GroupClassTemplate = {
   id: string
+  teacher_id: string
   title: string
   description: string | null
 }
@@ -90,13 +91,9 @@ export default async function TeacherGroupSessionDetailPage({
   }
 
   const session = sessionData as GroupSession
-  if (session.teacher_id !== user.id) {
-    return <UnauthorizedState />
-  }
-
   const { data: templateData, error: templateError } = await supabase
     .from('group_class_templates')
-    .select('id, title, description')
+    .select('id, teacher_id, title, description')
     .eq('id', session.template_id)
     .eq('is_active', true)
     .maybeSingle()
@@ -106,6 +103,9 @@ export default async function TeacherGroupSessionDetailPage({
   }
 
   const template = templateData as GroupClassTemplate
+  if (template.teacher_id !== user.id) {
+    return <UnauthorizedState />
+  }
 
   const { data: participantData, error: participantError } = await supabase
     .from('group_class_session_participants')

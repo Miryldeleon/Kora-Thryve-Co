@@ -162,7 +162,7 @@ export default async function TeacherFolderDetailPage({ params, searchParams }: 
 
         {modulesWithLinks.length === 0 ? (
           <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            This folder has no modules yet.
+            No materials in this folder yet.
           </p>
         ) : (
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -182,19 +182,20 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
   const folderModuleCount = new Map<string, number>()
   const ungroupedModules: TeacherModuleWithUrl[] = []
 
+  modulesWithLinks.forEach((module) => {
+    if (module.folder_id && folderIdSet.has(module.folder_id)) {
+      folderModuleCount.set(module.folder_id, (folderModuleCount.get(module.folder_id) ?? 0) + 1)
+    }
+  })
+
   visibleModules.forEach((module) => {
     if (!module.folder_id || !folderIdSet.has(module.folder_id)) {
       ungroupedModules.push(module)
       return
     }
-    folderModuleCount.set(module.folder_id, (folderModuleCount.get(module.folder_id) ?? 0) + 1)
   })
 
-  const visibleFolders = folders.filter((folder) => {
-    const moduleCount = folderModuleCount.get(folder.id) ?? 0
-    if (!query) return true
-    return folder.name.toLowerCase().includes(query) || moduleCount > 0
-  })
+  const visibleFolders = folders
 
   return (
     <div className="mx-auto w-full max-w-[1180px]">
@@ -327,6 +328,9 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
                     <p className="mt-2 text-sm text-slate-600">
                       {moduleCount} module{moduleCount === 1 ? '' : 's'}
                     </p>
+                    {moduleCount === 0 && (
+                      <p className="mt-2 text-sm text-slate-500">No materials in this folder yet.</p>
+                    )}
                     <p className="mt-3 text-sm font-medium text-[#8b7758] group-hover:underline">Open folder</p>
                   </div>
                 </Link>

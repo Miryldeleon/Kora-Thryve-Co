@@ -135,7 +135,7 @@ export default async function StudentModulesPage() {
     folderModuleCount.set(module.folder_id, (folderModuleCount.get(module.folder_id) ?? 0) + 1)
   })
 
-  const visibleFolders = folders.filter((folder) => (folderModuleCount.get(folder.id) ?? 0) > 0)
+  const visibleFolders = folders
 
   return (
     <div className="mx-auto w-full max-w-[1180px]">
@@ -186,6 +186,9 @@ export default async function StudentModulesPage() {
                     <p className="mt-2 text-sm text-slate-600">
                       {moduleCount} module{moduleCount === 1 ? '' : 's'}
                     </p>
+                    {moduleCount === 0 && (
+                      <p className="mt-2 text-sm text-slate-500">No materials in this folder yet.</p>
+                    )}
                     <p className="mt-3 text-sm font-medium text-[#7f8c5b] group-hover:underline">Open folder</p>
                   </div>
                 </Link>

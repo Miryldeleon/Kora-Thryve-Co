@@ -5,6 +5,7 @@ import {
   createRecurringClass,
   deleteRecurringClass,
   unenrollStudent,
+  updateRecurringClassDetails,
 } from './actions'
 
 type AdminGroupClassesPageProps = {
@@ -510,6 +511,40 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
                         {item.description}
                       </p>
                     )}
+
+                    <form action={updateRecurringClassDetails} className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                      <input type="hidden" name="class_id" value={item.id} />
+                      <input type="hidden" name="return_to" value="/admin/group-classes" />
+                      <h4 className="text-sm font-semibold text-slate-900">Class Details</h4>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <label className="text-sm text-slate-600">
+                          Class Name
+                          <input
+                            type="text"
+                            name="title"
+                            defaultValue={item.title}
+                            required
+                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label className="text-sm text-slate-600 md:col-span-2">
+                          Description
+                          <textarea
+                            name="description"
+                            rows={3}
+                            defaultValue={item.description ?? ''}
+                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                            placeholder="Class overview and learning goals"
+                          />
+                        </label>
+                      </div>
+                      <button
+                        type="submit"
+                        className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      >
+                        Save Details
+                      </button>
+                    </form>
 
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
                       <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">

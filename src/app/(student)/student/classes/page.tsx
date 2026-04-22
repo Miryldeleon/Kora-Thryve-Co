@@ -34,31 +34,50 @@ type GroupTemplateRow = {
   id: string
   title: string
   timezone: string | null
+  teacher_id: string
+}
+
+type ProfileRow = {
+  id: string
+  full_name: string | null
+  email: string | null
 }
 
 type FilterType = 'all' | 'group' | 'one_on_one'
 
-type StudentClassItem =
-  | {
-      id: string
-      sessionType: 'one_on_one'
-      title: string
-      dateLabel: string
-      timeLabel: string
-      status: string
-      sortValue: number
-      href: string
-    }
-  | {
-      id: string
-      sessionType: 'group'
-      title: string
-      dateLabel: string
-      timeLabel: string
-      status: string
-      sortValue: number
-      href: string
-    }
+type GroupSessionListItem = {
+  id: string
+  dateLabel: string
+  timeLabel: string
+  status: string
+  href: string
+  sortValue: number
+}
+
+type GroupClassCard = {
+  templateId: string
+  className: string
+  teacherName: string
+  nextSessionDateLabel: string
+  nextSessionTimeLabel: string
+  upcomingSessionCount: number
+  sessions: GroupSessionListItem[]
+  sortValue: number
+}
+
+type OneOnOneCard = {
+  id: string
+  title: string
+  dateLabel: string
+  timeLabel: string
+  status: string
+  sortValue: number
+  href: string
+}
+
+type CombinedCard =
+  | { kind: 'group'; sortValue: number; payload: GroupClassCard }
+  | { kind: 'one_on_one'; sortValue: number; payload: OneOnOneCard }
 
 const FILTERS: Array<{ id: FilterType; label: string }> = [
   { id: 'all', label: 'All' },
@@ -71,7 +90,7 @@ function toFilterType(value: string | undefined): FilterType {
   return 'all'
 }
 
-function sessionTypeBadgeClass(sessionType: StudentClassItem['sessionType']) {
+function sessionTypeBadgeClass(sessionType: 'group' | 'one_on_one') {
   if (sessionType === 'group') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
   return 'border-amber-200 bg-amber-50 text-amber-700'
 }
@@ -121,10 +140,9 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
     throw new Error(bookingError.message)
   }
 
-  const oneOnOneItems: StudentClassItem[] = ((bookingData ?? []) as StudentBookingRow[]).map(
+  const oneOnOneItems: OneOnOneCard[] = ((bookingData ?? []) as StudentBookingRow[]).map(
     (booking) => ({
       id: booking.id,
-      sessionType: 'one_on_one',
       title: booking.teacher_name || '1-on-1 Teacher',
       dateLabel: formatBookingDate(booking.starts_at),
       timeLabel: formatBookingTime(booking.starts_at, booking.ends_at),
@@ -140,7 +158,6 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
     .select('template_id')
     .eq('student_id', user.id)
     .eq('is_active', true)
-    .eq('status', 'active')
 
   if (enrollmentError) {
     throw new Error(enrollmentError.message)
@@ -172,7 +189,7 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
   if (templateIds.length > 0) {
     const { data: templateData, error: templateError } = await supabase
       .from('group_class_templates')
-      .select('id, title, timezone')
+      .select('id, title, timezone, teacher_id')
       .in('id', templateIds)
 
     if (templateError) {
@@ -184,15 +201,29 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
     )
   }
 
-  const groupItems: StudentClassItem[] = rawGroupSessions
+  const teacherIds = Array.from(new Set(Array.from(templateById.values()).map((template) => template.teacher_id)))
+  let teacherProfileById = new Map<string, ProfileRow>()
+  if (teacherIds.length > 0) {
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', teacherIds)
+
+    if (profileError) {
+      throw new Error(profileError.message)
+    }
+
+    teacherProfileById = new Map(((profileData ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]))
+  }
+
+  const groupSessionItems: Array<GroupSessionListItem & { templateId: string }> = rawGroupSessions
     .filter((session) => {
       const timezone = templateById.get(session.template_id)?.timezone || 'UTC'
       return session.session_date >= getTodayIsoDateForTimezone(timezone)
     })
     .map((session) => ({
       id: session.id,
-      sessionType: 'group',
-      title: templateById.get(session.template_id)?.title || 'Group Session',
+      templateId: session.template_id,
       dateLabel: formatIsoCalendarDate(session.session_date, { dateStyle: 'medium' }),
       timeLabel: `${session.start_time_local} - ${session.end_time_local}`,
       status: session.status,
@@ -200,10 +231,51 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
       href: `/group-session/${session.id}`,
     }))
 
-  const classItems = [...oneOnOneItems, ...groupItems]
+  const groupItemsByTemplate = new Map<string, GroupSessionListItem[]>()
+  groupSessionItems.forEach((session) => {
+    const list = groupItemsByTemplate.get(session.templateId) ?? []
+    list.push({
+      id: session.id,
+      dateLabel: session.dateLabel,
+      timeLabel: session.timeLabel,
+      status: session.status,
+      href: session.href,
+      sortValue: session.sortValue,
+    })
+    groupItemsByTemplate.set(session.templateId, list)
+  })
+
+  const groupCards: GroupClassCard[] = Array.from(templateById.values())
+    .map((template) => {
+      const sessions = groupItemsByTemplate.get(template.id) ?? []
+      const sortedSessions = [...sessions].sort((a, b) => a.sortValue - b.sortValue)
+      const nextSession = sortedSessions[0]
+      const teacherProfile = teacherProfileById.get(template.teacher_id)
+
+      return {
+        templateId: template.id,
+        className: template.title,
+        teacherName: teacherProfile?.full_name?.trim() || teacherProfile?.email || 'Teacher',
+        nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming session',
+        nextSessionTimeLabel: nextSession?.timeLabel || '',
+        upcomingSessionCount: sortedSessions.length,
+        sessions: sortedSessions,
+        sortValue: nextSession?.sortValue ?? Number.MAX_SAFE_INTEGER,
+      }
+    })
+    .sort((a, b) => a.sortValue - b.sortValue)
+
+  const classItems: CombinedCard[] = [
+    ...groupCards.map((card) => ({ kind: 'group' as const, sortValue: card.sortValue, payload: card })),
+    ...oneOnOneItems.map((card) => ({
+      kind: 'one_on_one' as const,
+      sortValue: card.sortValue,
+      payload: card,
+    })),
+  ]
     .filter((item) => {
       if (activeFilter === 'all') return true
-      return item.sessionType === activeFilter
+      return item.kind === activeFilter
     })
     .sort((a, b) => a.sortValue - b.sortValue)
 
@@ -245,38 +317,80 @@ export default async function StudentClassesPage({ searchParams }: StudentClasse
               </p>
             )}
 
-            {classItems.map((item) => (
-              <article key={`${item.sessionType}-${item.id}`} className={brandUi.card}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-base font-semibold text-slate-900">{item.title}</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {item.dateLabel} | {item.timeLabel}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionTypeBadgeClass(
-                        item.sessionType
-                      )}`}
-                    >
-                      {item.sessionType === 'group' ? 'Group' : '1-on-1'}
-                    </span>
-                    <span
-                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionStatusBadgeClass(
-                        item.status
-                      )}`}
-                    >
-                      {item.status}
-                    </span>
-                  </div>
-                </div>
+            {classItems.map((item) => {
+              if (item.kind === 'group') {
+                const group = item.payload
+                return (
+                  <Link
+                    key={`group-${group.templateId}`}
+                    href={`/student/classes/${group.templateId}`}
+                    className={`${brandUi.card} block transition hover:-translate-y-0.5 hover:shadow-md`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-indigo-700">↻</span>
+                          <p className="text-base font-semibold text-slate-900">{group.className}</p>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">Teacher: {group.teacherName}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Next: {group.nextSessionDateLabel}
+                          {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {group.upcomingSessionCount} upcoming session
+                          {group.upcomingSessionCount === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionTypeBadgeClass(
+                            'group'
+                          )}`}
+                        >
+                          Group
+                        </span>
+                        <span className="text-sm font-medium text-[#8b7758]">View Class</span>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              }
 
-                <a href={item.href} className={`mt-4 ${brandUi.primaryButton}`}>
-                  Join Session
-                </a>
-              </article>
-            ))}
+              const oneOnOne = item.payload
+              return (
+                <article key={`one-${oneOnOne.id}`} className={brandUi.card}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-base font-semibold text-slate-900">{oneOnOne.title}</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {oneOnOne.dateLabel} | {oneOnOne.timeLabel}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionTypeBadgeClass(
+                          'one_on_one'
+                        )}`}
+                      >
+                        1-on-1
+                      </span>
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${sessionStatusBadgeClass(
+                          oneOnOne.status
+                        )}`}
+                      >
+                        {oneOnOne.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Link href={oneOnOne.href} className={`mt-4 ${brandUi.primaryButton}`}>
+                    Join Session
+                  </Link>
+                </article>
+              )
+            })}
           </div>
         </section>
       </div>

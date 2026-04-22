@@ -152,7 +152,7 @@ export default async function StudentFolderDetailPage({ params }: StudentFolderP
 
         {modulesWithSignedUrls.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
-            No modules in this folder yet.
+            No materials in this folder yet.
           </div>
         ) : (
           <div className="mt-4 grid gap-4">

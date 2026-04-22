@@ -2,8 +2,6 @@ import Link from 'next/link'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
-import { createClient } from '@supabase/supabase-js'
-
 
 type TeacherClassesPageProps = {
   searchParams: Promise<{
@@ -25,8 +23,15 @@ type GroupTemplateRow = {
   title: string
 }
 
-type GroupParticipantRow = {
-  session_id: string
+type TeacherGroupClassRpcRow = {
+  template_id: string
+  template_title: string
+  session_id: string | null
+  session_date: string | null
+  start_time_local: string | null
+  end_time_local: string | null
+  status: string | null
+  participant_count: number | null
 }
 
 type BookingRow = {
@@ -126,84 +131,62 @@ function toLocalSessionSortValue(sessionDate: string, startTimeLocal: string) {
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
 }
 
-function createAdminClientOrNull() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !serviceRoleKey) return null
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 export default async function TeacherClassesPage({ searchParams }: TeacherClassesPageProps) {
   const { supabase, user } = await requireApprovedTeacher()
-  const adminClient = createAdminClientOrNull()
-  const groupReadClient = adminClient ?? supabase
-  const isDebug = process.env.NODE_ENV !== 'production'
   const { type } = await searchParams
   const activeFilter = toFilterType(type)
   const nowIso = new Date().toISOString()
-  const queryClientPath: 'admin_service_role' | 'authenticated_fallback' = adminClient
-    ? 'admin_service_role'
-    : 'authenticated_fallback'
-  if (!adminClient && isDebug) {
-    console.warn('[teacher/classes] service role key missing, falling back to authenticated client')
+
+  const { data: groupClassData, error: groupClassError } = await supabase.rpc(
+    'get_teacher_classes_page_group_sessions'
+  )
+  if (groupClassError) {
+    throw new Error(groupClassError.message)
   }
 
-  const { data: teacherTemplateData, error: teacherTemplateError } = await groupReadClient
-    .from('group_class_templates')
-    .select('id, title')
-    .eq('teacher_id', user.id)
-  if (teacherTemplateError) {
-    throw new Error(teacherTemplateError.message)
-  }
-  const templateRows = (teacherTemplateData ?? []) as GroupTemplateRow[]
-  const templateById = new Map(templateRows.map((template) => [template.id, template.title]))
+  const groupClassRows = (groupClassData ?? []) as TeacherGroupClassRpcRow[]
+  const templateRows = Array.from(
+    new Map(
+      groupClassRows.map((row) => [
+        row.template_id,
+        {
+          id: row.template_id,
+          title: row.template_title,
+        },
+      ])
+    ).values()
+  ) satisfies GroupTemplateRow[]
 
-  const { data: groupSessionData, error: groupSessionError } = await groupReadClient
-    .from('group_class_sessions')
-    .select('id, template_id, session_date, start_time_local, end_time_local, status')
-    .eq('teacher_id', user.id)
-    .eq('is_active', true)
-    .eq('status', 'scheduled')
-    .order('session_date', { ascending: true })
-    .order('start_time_local', { ascending: true })
-  if (groupSessionError) {
-    throw new Error(groupSessionError.message)
-  }
-
-  const rawGroupSessions = (groupSessionData ?? []) as GroupSessionRow[]
-  const groupSessions = rawGroupSessions
-  if (isDebug) {
-    console.log('[teacher/classes] group query debug', {
-      userId: user.id,
-      clientPath: queryClientPath,
-      rawTemplateCount: templateRows.length,
-      rawSessionCount: groupSessions.length,
-      sampleSessionIds: groupSessions.slice(0, 10).map((row) => row.id),
-    })
-  }
-
-  const groupSessionIds = groupSessions.map((session) => session.id)
-  const participantCountBySession = new Map<string, number>()
-  if (groupSessionIds.length > 0) {
-    const { data: participantData, error: participantError } = await groupReadClient
-      .from('group_class_session_participants')
-      .select('session_id')
-      .eq('is_active', true)
-      .in('session_id', groupSessionIds)
-
-    if (participantError) {
-      throw new Error(participantError.message)
-    }
-
-    for (const participant of (participantData ?? []) as GroupParticipantRow[]) {
-      participantCountBySession.set(
-        participant.session_id,
-        (participantCountBySession.get(participant.session_id) ?? 0) + 1
-      )
-    }
-  }
+  const groupSessions: GroupSessionRow[] = groupClassRows
+    .filter(
+      (
+        row
+      ): row is TeacherGroupClassRpcRow & {
+        session_id: string
+        session_date: string
+        start_time_local: string
+        end_time_local: string
+        status: string
+      } =>
+        row.session_id !== null &&
+        row.session_date !== null &&
+        row.start_time_local !== null &&
+        row.end_time_local !== null &&
+        row.status !== null
+    )
+    .map((row) => ({
+      id: row.session_id,
+      template_id: row.template_id,
+      session_date: row.session_date,
+      start_time_local: row.start_time_local,
+      end_time_local: row.end_time_local,
+      status: row.status,
+    }))
+  const participantCountBySession = new Map(
+    groupClassRows
+      .filter((row) => row.session_id !== null)
+      .map((row) => [row.session_id as string, row.participant_count ?? 0])
+  )
 
   const groupSessionItems: GroupSessionListItem[] = groupSessions.map((session) => {
     return {
@@ -225,13 +208,14 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
     groupItemsByTemplate.set(session.template_id, list)
   }
 
-  const groupCards: GroupClassCard[] = Array.from(groupItemsByTemplate.entries())
-    .map(([templateId, sessions]) => {
+  const groupCards: GroupClassCard[] = templateRows
+    .map((template) => {
+      const sessions = groupItemsByTemplate.get(template.id) ?? []
       const sortedSessions = [...sessions].sort((a, b) => a.sortValue - b.sortValue)
       const nextSession = sortedSessions[0]
       return {
-        templateId,
-        className: templateById.get(templateId) || 'Recurring Class',
+        templateId: template.id,
+        className: template.title,
         nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming session',
         nextSessionTimeLabel: nextSession?.timeLabel || '',
         nextParticipantCount: nextSession?.participantCount ?? 0,
@@ -241,12 +225,6 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
       }
     })
     .sort((a, b) => a.sortValue - b.sortValue)
-  if (isDebug) {
-    console.log('[teacher/classes] group cards debug', {
-      userId: user.id,
-      groupedCardCount: groupCards.length,
-    })
-  }
 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')
@@ -325,71 +303,39 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
               if (card.kind === 'group') {
                 const group = card.payload
                 return (
-                  <details key={`group-${group.templateId}`} className={brandUi.card}>
-                    <summary className="cursor-pointer list-none">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-indigo-700">↻</span>
-                            <p className="text-base font-semibold text-slate-900">{group.className}</p>
-                          </div>
-                          <p className="mt-1 text-sm text-slate-600">
-                            Next: {group.nextSessionDateLabel}
-                            {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-600">
-                            {group.upcomingSessionCount} upcoming session
-                            {group.upcomingSessionCount === 1 ? '' : 's'} | Participants (next):{' '}
-                            {group.nextParticipantCount}
-                          </p>
-                        </div>
+                  <Link
+                    key={`group-${group.templateId}`}
+                    href={`/teacher/classes/${group.templateId}`}
+                    className={`${brandUi.card} block transition hover:-translate-y-0.5 hover:shadow-md`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
                         <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass(
-                              'group'
-                            )}`}
-                          >
-                            Group
-                          </span>
-                          <span className="text-slate-500">▾</span>
+                          <span className="text-sm text-indigo-700">↻</span>
+                          <p className="text-base font-semibold text-slate-900">{group.className}</p>
                         </div>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Next: {group.nextSessionDateLabel}
+                          {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {group.upcomingSessionCount} upcoming session
+                          {group.upcomingSessionCount === 1 ? '' : 's'} | Participants (next):{' '}
+                          {group.nextParticipantCount}
+                        </p>
                       </div>
-                    </summary>
-
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <div className="space-y-2">
-                        {group.sessions.map((session) => (
-                          <article
-                            key={session.id}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-medium text-slate-900">
-                                  {session.dateLabel} | {session.timeLabel}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-600">
-                                  Participants: {session.participantCount}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.1em] ${classStatusBadgeClass(
-                                    session.status
-                                  )}`}
-                                >
-                                  {session.status}
-                                </span>
-                                <Link href={session.href} className={brandUi.secondaryButton}>
-                                  Open Session
-                                </Link>
-                              </div>
-                            </div>
-                          </article>
-                        ))}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass(
+                            'group'
+                          )}`}
+                        >
+                          Group
+                        </span>
+                        <span className="text-sm font-medium text-[#8b7758]">View Class</span>
                       </div>
                     </div>
-                  </details>
+                  </Link>
                 )
               }
 

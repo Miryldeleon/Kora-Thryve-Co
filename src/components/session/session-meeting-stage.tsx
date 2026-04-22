@@ -46,26 +46,10 @@ export default function SessionMeetingStage({
   const [statusError, setStatusError] = useState<string | null>(null)
 
   const canEnterLiveMeeting = useMemo(() => isTeacher || teacherHasJoined, [isTeacher, teacherHasJoined])
-  const isDevelopment = process.env.NODE_ENV !== 'production'
 
   const markJoined = useCallback(async () => {
-    if (isDevelopment) {
-      console.log('[session-meeting-stage] teacher conference joined callback fired', {
-        bookingId,
-        isTeacher,
-      })
-    }
-
     for (let attempt = 1; attempt <= ATTENDANCE_POST_MAX_ATTEMPTS; attempt += 1) {
       try {
-        if (isDevelopment) {
-          console.log('[session-meeting-stage] teacher attendance/session-start POST sent', {
-            bookingId,
-            attempt,
-            maxAttempts: ATTENDANCE_POST_MAX_ATTEMPTS,
-          })
-        }
-
         const response = await fetch(attendanceApiPath, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -75,14 +59,6 @@ export default function SessionMeetingStage({
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
         if (!response.ok) {
-          if (isDevelopment) {
-            console.log('[session-meeting-stage] teacher attendance POST failure response', {
-              bookingId,
-              attempt,
-              status: response.status,
-              error: payload?.error ?? 'Unknown error',
-            })
-          }
           if (attempt === ATTENDANCE_POST_MAX_ATTEMPTS) {
             setStatusError(payload?.error || 'Unable to record session join activity.')
             return
@@ -93,23 +69,9 @@ export default function SessionMeetingStage({
           continue
         }
 
-        if (isDevelopment) {
-          console.log('[session-meeting-stage] teacher attendance POST success response', {
-            bookingId,
-            attempt,
-            status: response.status,
-            payload,
-          })
-        }
         setStatusError(null)
         return
       } catch {
-        if (isDevelopment) {
-          console.log('[session-meeting-stage] teacher attendance POST threw', {
-            bookingId,
-            attempt,
-          })
-        }
         if (attempt === ATTENDANCE_POST_MAX_ATTEMPTS) {
           setStatusError('Unable to record session join activity.')
           return
@@ -119,17 +81,11 @@ export default function SessionMeetingStage({
         })
       }
     }
-  }, [attendanceApiPath, attendanceResourceParam, bookingId, isDevelopment, isTeacher])
+  }, [attendanceApiPath, attendanceResourceParam, bookingId])
 
   const loadTeacherPresence = useCallback(async () => {
     if (isTeacher || teacherHasJoined) return
 
-    if (isDevelopment) {
-      console.log('[session-meeting-stage] student gate fetch start', {
-        bookingId,
-        teacherHasJoined,
-      })
-    }
     setIsCheckingStatus(true)
     try {
       const response = await fetch(
@@ -147,68 +103,20 @@ export default function SessionMeetingStage({
       if (!response.ok) {
         const rawBody = await response.text()
         const payload = JSON.parse(rawBody || '{}') as { error?: string }
-        if (isDevelopment) {
-          console.log('[session-meeting-stage] student gate fetch failure response', {
-            bookingId,
-            status: response.status,
-            rawBody,
-            error: payload.error ?? 'Unknown error',
-          })
-        }
         setStatusError(payload.error || 'Unable to check teacher availability right now.')
         return
       }
 
       const rawBody = await response.text()
       const payload = JSON.parse(rawBody || '{}') as AttendanceStatusResponse
-      if (isDevelopment) {
-        console.log('[session-meeting-stage] student gate fetch result', {
-          bookingId,
-          rawBody,
-          teacherHasJoined: payload.teacherHasJoined,
-          teacherJoinedAt: payload.teacherJoinedAt,
-          teacherHasJoinedFalseReason: payload.teacherHasJoinedFalseReason ?? null,
-        })
-        if (payload.teacherJoinedAt && !payload.teacherHasJoined) {
-          console.log('[session-meeting-stage] teacherHasJoined false while attendance exists', {
-            bookingId,
-            teacherJoinedAt: payload.teacherJoinedAt,
-            teacherHasJoinedFalseReason: payload.teacherHasJoinedFalseReason ?? 'No reason provided',
-          })
-        }
-      }
       setTeacherHasJoined(Boolean(payload.teacherHasJoined))
       setStatusError(null)
     } catch {
-      if (isDevelopment) {
-        console.log('[session-meeting-stage] student gate fetch threw', { bookingId })
-      }
       setStatusError('Unable to check teacher availability right now.')
     } finally {
       setIsCheckingStatus(false)
     }
-  }, [
-    attendanceApiPath,
-    attendanceResourceParam,
-    bookingId,
-    isDevelopment,
-    isTeacher,
-    teacherHasJoined,
-  ])
-
-  useEffect(() => {
-    if (!isDevelopment || isTeacher || teacherHasJoined) return
-    console.log('[session-meeting-stage] student gate active', { bookingId, teacherHasJoined })
-  }, [bookingId, isDevelopment, isTeacher, teacherHasJoined])
-
-  useEffect(() => {
-    if (!isDevelopment || !isTeacher) return
-    console.log('[session-meeting-stage] teacher path rendering Jitsi iframe', {
-      bookingId,
-      canEnterLiveMeeting,
-      teacherHasJoined,
-    })
-  }, [bookingId, canEnterLiveMeeting, isDevelopment, isTeacher, teacherHasJoined])
+  }, [attendanceApiPath, attendanceResourceParam, bookingId, isTeacher, teacherHasJoined])
 
   useEffect(() => {
     if (isTeacher || teacherHasJoined) return

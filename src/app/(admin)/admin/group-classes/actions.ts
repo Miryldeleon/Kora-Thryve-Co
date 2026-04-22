@@ -203,6 +203,8 @@ export async function createRecurringClass(formData: FormData) {
     (enrollmentWarning ?? '')
 
   revalidatePath('/admin/group-classes')
+  revalidatePath('/teacher/classes')
+  revalidatePath('/teacher/group-sessions')
   redirect(toResultUrl(returnPath, 'success', successMessage))
 }
 
@@ -282,6 +284,39 @@ export async function deleteRecurringClass(formData: FormData) {
   revalidatePath('/teacher/classes')
   revalidatePath('/teacher/group-sessions')
   redirect(toResultUrl(returnPath, 'success', 'Recurring class deleted'))
+}
+
+export async function updateRecurringClassDetails(formData: FormData) {
+  const { supabase } = await requireAdminAccess()
+  const returnPath = resolveGroupClassesReturnPath(formData)
+  const classId = parseId(formData.get('class_id'))
+  const title = String(formData.get('title') ?? '').trim()
+  const description = String(formData.get('description') ?? '').trim()
+
+  if (classId.length === 0) {
+    redirect(toResultUrl(returnPath, 'error', 'Class id is required'))
+  }
+
+  if (title.length === 0) {
+    redirect(toResultUrl(returnPath, 'error', 'Class name is required'))
+  }
+
+  const { error } = await supabase
+    .from('group_class_templates')
+    .update({
+      title,
+      description: description || null,
+    })
+    .eq('id', classId)
+
+  if (error) {
+    redirect(toResultUrl(returnPath, 'error', error.message))
+  }
+
+  revalidatePath('/admin/group-classes')
+  revalidatePath('/teacher/classes')
+  revalidatePath('/student/classes')
+  redirect(toResultUrl(returnPath, 'success', 'Recurring class details updated'))
 }
 
 export async function unenrollStudent(formData: FormData) {

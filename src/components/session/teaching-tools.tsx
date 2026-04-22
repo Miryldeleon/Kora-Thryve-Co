@@ -28,16 +28,22 @@ type LessonState = {
 }
 
 type TeachingToolsProps = {
-  bookingId: string
+  sessionId: string
   isTeacher: boolean
   folders: ToolFolder[]
   modules: ToolModule[]
+  stateApiPath?: string
+  stateResourceParam?: string
   className?: string
 }
 
 type SnapshotPayload = {
   lesson: LessonState
   whiteboardSnapshot: string | null
+}
+
+type TeachingStateResponse = Partial<SnapshotPayload> & {
+  error?: string
 }
 
 const CHANNEL_EVENT = {
@@ -66,10 +72,12 @@ function clampRatio(value: number) {
 }
 
 export default function TeachingTools({
-  bookingId,
+  sessionId,
   isTeacher,
   folders,
   modules,
+  stateApiPath,
+  stateResourceParam = 'sessionId',
   className,
 }: TeachingToolsProps) {
   const [lessonState, setLessonState] = useState<LessonState>({
@@ -152,7 +160,21 @@ export default function TeachingTools({
     []
   )
 
+  const normalizeLessonState = useCallback((nextLesson: LessonState): LessonState => {
+    return {
+      surface: nextLesson.surface === 'whiteboard' ? 'whiteboard' : 'materials',
+      moduleId: nextLesson.moduleId,
+      page: clampPage(nextLesson.page),
+      zoom: clampZoom(nextLesson.zoom),
+      scrollTopRatio: clampRatio(nextLesson.scrollTopRatio),
+      scrollLeftRatio: clampRatio(nextLesson.scrollLeftRatio),
+    }
+  }, [])
+
   const applyWhiteboardSnapshot = useCallback((dataUrl: string | null) => {
+    setWhiteboardSnapshot(dataUrl)
+    whiteboardSnapshotRef.current = dataUrl
+
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -164,19 +186,44 @@ export default function TeachingTools({
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     if (!dataUrl) {
-      setWhiteboardSnapshot(null)
-      whiteboardSnapshotRef.current = null
       return
     }
 
     const image = new Image()
     image.onload = () => {
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-      setWhiteboardSnapshot(dataUrl)
-      whiteboardSnapshotRef.current = dataUrl
     }
     image.src = dataUrl
   }, [])
+
+  const applySnapshot = useCallback(
+    (snapshot: SnapshotPayload) => {
+      const normalized = normalizeLessonState(snapshot.lesson)
+      setLessonState(normalized)
+      setPageInput(String(normalized.page))
+      lessonRef.current = normalized
+      applyWhiteboardSnapshot(snapshot.whiteboardSnapshot ?? null)
+    },
+    [applyWhiteboardSnapshot, normalizeLessonState]
+  )
+
+  const persistSnapshot = useCallback(
+    async (snapshot: SnapshotPayload) => {
+      if (!isTeacher || !stateApiPath) return
+
+      await fetch(stateApiPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          [stateResourceParam]: sessionId,
+          lesson: snapshot.lesson,
+          whiteboardSnapshot: snapshot.whiteboardSnapshot,
+        }),
+      })
+    },
+    [isTeacher, sessionId, stateApiPath, stateResourceParam]
+  )
 
   const syncCanvasSnapshot = useCallback(() => {
     const canvas = canvasRef.current
@@ -196,18 +243,12 @@ export default function TeachingTools({
       whiteboardSnapshot: whiteboardSnapshotRef.current,
     }
     await broadcastEvent(CHANNEL_EVENT.STATE_SNAPSHOT, payload)
-  }, [broadcastEvent, isTeacher])
+    await persistSnapshot(payload)
+  }, [broadcastEvent, isTeacher, persistSnapshot])
 
   const setLessonAndBroadcast = useCallback(
     (nextLesson: LessonState) => {
-      const normalized: LessonState = {
-        surface: nextLesson.surface === 'whiteboard' ? 'whiteboard' : 'materials',
-        moduleId: nextLesson.moduleId,
-        page: clampPage(nextLesson.page),
-        zoom: clampZoom(nextLesson.zoom),
-        scrollTopRatio: clampRatio(nextLesson.scrollTopRatio),
-        scrollLeftRatio: clampRatio(nextLesson.scrollLeftRatio),
-      }
+      const normalized = normalizeLessonState(nextLesson)
       setLessonState(normalized)
       setPageInput(String(normalized.page))
       lessonRef.current = normalized
@@ -216,7 +257,7 @@ export default function TeachingTools({
         void broadcastEvent(CHANNEL_EVENT.LESSON_STATE, normalized)
       }
     },
-    [broadcastEvent, isTeacher]
+    [broadcastEvent, isTeacher, normalizeLessonState]
   )
 
   useEffect(() => {
@@ -228,7 +269,7 @@ export default function TeachingTools({
   }, [whiteboardSnapshot])
 
   useEffect(() => {
-    const channel = supabase.channel(`session-tools-${bookingId}`, {
+    const channel = supabase.channel(`session-tools-${sessionId}`, {
       config: { broadcast: { self: true } },
     })
     channelRef.current = channel
@@ -241,32 +282,14 @@ export default function TeachingTools({
       if (isTeacher) return
       const next = payload as SnapshotPayload
       if (!next?.lesson) return
-      const normalized: LessonState = {
-        surface: next.lesson.surface === 'whiteboard' ? 'whiteboard' : 'materials',
-        moduleId: next.lesson.moduleId,
-        page: clampPage(next.lesson.page),
-        zoom: clampZoom(next.lesson.zoom),
-        scrollTopRatio: clampRatio(next.lesson.scrollTopRatio),
-        scrollLeftRatio: clampRatio(next.lesson.scrollLeftRatio),
-      }
-      setLessonState(normalized)
-      setPageInput(String(normalized.page))
-      lessonRef.current = normalized
-      applyWhiteboardSnapshot(next.whiteboardSnapshot ?? null)
+      applySnapshot(next)
     })
 
     channel.on('broadcast', { event: CHANNEL_EVENT.LESSON_STATE }, ({ payload }) => {
       if (isTeacher) return
       const next = payload as LessonState
       if (!next) return
-      const normalized: LessonState = {
-        surface: next.surface === 'whiteboard' ? 'whiteboard' : 'materials',
-        moduleId: next.moduleId,
-        page: clampPage(next.page),
-        zoom: clampZoom(next.zoom),
-        scrollTopRatio: clampRatio(next.scrollTopRatio),
-        scrollLeftRatio: clampRatio(next.scrollLeftRatio),
-      }
+      const normalized = normalizeLessonState(next)
       setLessonState(normalized)
       setPageInput(String(normalized.page))
       lessonRef.current = normalized
@@ -296,7 +319,48 @@ export default function TeachingTools({
       void supabase.removeChannel(channel)
       channelRef.current = null
     }
-  }, [applyWhiteboardSnapshot, bookingId, broadcastEvent, isTeacher, sendFullSnapshot])
+  }, [applySnapshot, applyWhiteboardSnapshot, broadcastEvent, isTeacher, normalizeLessonState, sendFullSnapshot, sessionId])
+
+  useEffect(() => {
+    if (isTeacher || !stateApiPath) return
+
+    let cancelled = false
+    let intervalId: number | null = null
+
+    const loadTeachingState = async () => {
+      try {
+        const response = await fetch(
+          `${stateApiPath}?${new URLSearchParams({
+            [stateResourceParam]: sessionId,
+            ts: String(Date.now()),
+          }).toString()}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+          }
+        )
+        const payload = (await response.json()) as TeachingStateResponse
+        if (!response.ok || !payload.lesson || cancelled) return
+        applySnapshot({
+          lesson: payload.lesson,
+          whiteboardSnapshot: payload.whiteboardSnapshot ?? null,
+        })
+      } catch {
+        // Realtime remains the primary in-room transport; polling will try again.
+      }
+    }
+
+    void loadTeachingState()
+    intervalId = window.setInterval(() => {
+      void loadTeachingState()
+    }, 2500)
+
+    return () => {
+      cancelled = true
+      if (intervalId) window.clearInterval(intervalId)
+    }
+  }, [applySnapshot, isTeacher, sessionId, stateApiPath, stateResourceParam])
 
   useEffect(() => {
     if (!isTeacher) return

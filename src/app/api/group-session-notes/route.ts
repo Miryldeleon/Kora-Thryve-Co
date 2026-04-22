@@ -7,9 +7,8 @@ type GroupSessionAccessRow = {
   access_role: 'teacher' | 'student' | string
 }
 
-type GroupSessionTeacherPresenceRow = {
-  teacher_has_joined: boolean
-  teacher_joined_at: string | null
+type GroupSessionNotesRow = {
+  notes: string
 }
 
 async function loadAuthorizedGroupSession(sessionId: string) {
@@ -39,7 +38,6 @@ async function loadAuthorizedGroupSession(sessionId: string) {
     supabase,
     user,
     session,
-    role: session.access_role,
   }
 }
 
@@ -56,37 +54,34 @@ export async function GET(request: Request) {
     if ('error' in access) return access.error
 
     const { supabase } = access
-    const { data: teacherPresence, error: attendanceError } = await supabase
-      .rpc('get_group_session_teacher_presence', { target_session_id: sessionId })
+    const { data: notesData, error: notesError } = await supabase
+      .rpc('get_group_session_notes', { target_session_id: sessionId })
       .maybeSingle()
 
-    if (attendanceError) {
-      return NextResponse.json({ error: attendanceError.message }, { status: 400 })
+    if (notesError) {
+      return NextResponse.json({ error: notesError.message }, { status: 400 })
     }
 
-    const presence = teacherPresence as GroupSessionTeacherPresenceRow | null
-    const teacherJoinedAt = presence?.teacher_joined_at ?? null
-    const teacherHasJoined = Boolean(presence?.teacher_has_joined)
+    const noteRow = notesData as GroupSessionNotesRow | null
 
-    return NextResponse.json({
-      teacherHasJoined,
-      teacherJoinedAt,
-    })
+    return NextResponse.json({ notes: noteRow?.notes ?? '' })
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to load group session attendance right now.' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Unable to load notes right now.' }, { status: 500 })
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { sessionId?: string }
+    const body = (await request.json()) as { sessionId?: string; notes?: string }
     const sessionId = String(body.sessionId ?? '').trim()
+    const notes = String(body.notes ?? '')
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
+    }
+
+    if (notes.length > 20000) {
+      return NextResponse.json({ error: 'Notes are too long' }, { status: 400 })
     }
 
     const access = await loadAuthorizedGroupSession(sessionId)
@@ -94,33 +89,28 @@ export async function POST(request: Request) {
 
     const { supabase, session } = access
 
-    if (session.status === 'cancelled') {
+    if (session.access_role !== 'teacher') {
+      return NextResponse.json({ error: 'Only the teacher can edit notes' }, { status: 403 })
+    }
+
+    if (session.status !== 'scheduled') {
       return NextResponse.json(
-        { error: 'This group session was cancelled. Live access is unavailable.' },
+        { error: 'Notes can only be edited for scheduled group sessions' },
         { status: 400 }
       )
     }
 
-    if (session.status === 'completed') {
-      return NextResponse.json(
-        { error: 'This group session has already been completed.' },
-        { status: 400 }
-      )
-    }
-
-    const { error: upsertError } = await supabase.rpc('record_group_session_attendance', {
+    const { error: upsertError } = await supabase.rpc('save_group_session_notes', {
       target_session_id: sessionId,
+      next_notes: notes,
     })
 
     if (upsertError) {
       return NextResponse.json({ error: upsertError.message }, { status: 400 })
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, notes })
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to record group attendance right now.' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Unable to save notes right now.' }, { status: 500 })
   }
 }

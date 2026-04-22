@@ -4,14 +4,18 @@ import { FormEvent, useState } from 'react'
 import { brandUi } from '@/lib/ui/branding'
 
 type SessionNotesFormProps = {
-  bookingId: string
+  resourceId: string
   initialNotes: string
+  apiPath?: string
+  resourceParam?: string
   onSaved?: (nextNotes: string) => void
 }
 
 export default function SessionNotesForm({
-  bookingId,
+  resourceId,
   initialNotes,
+  apiPath = '/api/session-notes',
+  resourceParam = 'bookingId',
   onSaved,
 }: SessionNotesFormProps) {
   const [notes, setNotes] = useState(initialNotes)
@@ -26,11 +30,11 @@ export default function SessionNotesForm({
     setErrorMessage(null)
 
     try {
-      const response = await fetch('/api/session-notes', {
+      const response = await fetch(apiPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bookingId,
+          [resourceParam]: resourceId,
           notes,
         }),
       })
