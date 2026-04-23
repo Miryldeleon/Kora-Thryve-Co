@@ -112,7 +112,7 @@ export async function getFutureJitsiAuthToken(
   }
 
   const keyId = (process.env.JITSI_KEY_ID ?? '').trim()
-  const privateKeyRaw = process.env.JITSI_PRIVATE_KEY ?? ''
+  const privateKeyRaw = process.env.JITSI_PRIVATE_KEY?.replace(/\\n/g, '\n') ?? ''
   const privateKey = normalizePrivateKey(privateKeyRaw)
   const audience = 'jitsi'
   const issuer = 'chat'
