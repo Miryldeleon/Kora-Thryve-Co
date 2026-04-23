@@ -66,15 +66,14 @@ export default async function TeacherClassDetailPage({ params }: TeacherClassDet
   const { templateId } = await params
 
   const { data: groupClassData, error: groupClassError } = await supabase.rpc(
-    'get_teacher_classes_page_group_sessions'
+    'get_teacher_group_class_details',
+    { target_template_id: templateId }
   )
   if (groupClassError) {
     throw new Error(groupClassError.message)
   }
 
-  const classRows = ((groupClassData ?? []) as TeacherGroupClassRpcRow[]).filter(
-    (row) => row.template_id === templateId
-  )
+  const classRows = (groupClassData ?? []) as TeacherGroupClassRpcRow[]
 
   if (classRows.length === 0) {
     notFound()

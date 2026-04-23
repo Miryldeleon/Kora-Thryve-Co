@@ -223,16 +223,6 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
     return <SessionUnavailableState status={session.status} backHref={backHref} />
   }
 
-  if (isTeacher) {
-    const { error: teacherPresenceError } = await supabase.rpc('record_group_session_attendance', {
-      target_session_id: session.id,
-    })
-
-    if (teacherPresenceError) {
-      throw new Error(teacherPresenceError.message)
-    }
-  }
-
   const role = isTeacher ? 'teacher' : 'student'
   const displayName = isTeacher ? 'Teacher' : 'Student'
   const jitsiConfig = getJitsiPublicConfig()
