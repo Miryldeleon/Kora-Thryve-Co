@@ -349,6 +349,9 @@ export default async function SessionRoomPage({
                   className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-3 lg:p-4"
                   sessionId={booking.id}
                   isTeacher={isTeacher}
+                  currentUserId={user.id}
+                  stateApiPath="/api/session-teaching-state"
+                  stateResourceParam="bookingId"
                   folders={folders}
                   modules={modulesWithUrls.map((module) => ({
                     id: module.id,

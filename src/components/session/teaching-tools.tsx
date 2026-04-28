@@ -2,6 +2,20 @@
 
 import { supabase } from '@/lib/supabase/client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  AnnotationPoint,
+  AnnotationStroke,
+  AnnotationTool,
+  LessonState,
+  TeachingAnnotations,
+  TeachingStateSnapshot,
+} from '@/lib/session/teaching-state'
+import {
+  EMPTY_TEACHING_ANNOTATIONS,
+  dedupeAnnotationStrokes,
+  dedupeTeachingAnnotations,
+  isTeachingAnnotations,
+} from '@/lib/session/teaching-state'
 import ControlledPdfStage from './controlled-pdf-stage'
 
 type ToolModule = {
@@ -18,18 +32,10 @@ type ToolFolder = {
   name: string
 }
 
-type LessonState = {
-  surface: 'materials' | 'whiteboard'
-  moduleId: string | null
-  page: number
-  zoom: number
-  scrollTopRatio: number
-  scrollLeftRatio: number
-}
-
 type TeachingToolsProps = {
   sessionId: string
   isTeacher: boolean
+  currentUserId: string
   folders: ToolFolder[]
   modules: ToolModule[]
   stateApiPath?: string
@@ -37,10 +43,7 @@ type TeachingToolsProps = {
   className?: string
 }
 
-type SnapshotPayload = {
-  lesson: LessonState
-  whiteboardSnapshot: string | null
-}
+type SnapshotPayload = TeachingStateSnapshot
 
 type TeachingStateResponse = Partial<SnapshotPayload> & {
   error?: string
@@ -50,9 +53,14 @@ const CHANNEL_EVENT = {
   REQUEST_SYNC: 'REQUEST_SYNC',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
   LESSON_STATE: 'LESSON_STATE',
+  ANNOTATIONS_STATE: 'ANNOTATIONS_STATE',
+  ANNOTATION_DRAFT: 'ANNOTATION_DRAFT',
   WHITEBOARD_SNAPSHOT: 'WHITEBOARD_SNAPSHOT',
   WHITEBOARD_CLEAR: 'WHITEBOARD_CLEAR',
 } as const
+
+const ANNOTATION_COLORS = ['#1f2937', '#dc2626', '#2563eb', '#059669', '#ca8a04'] as const
+const ANNOTATION_STROKE_SIZES = [3, 5, 7] as const
 
 function clampPage(value: number) {
   if (!Number.isFinite(value) || value < 1) return 1
@@ -71,9 +79,14 @@ function clampRatio(value: number) {
   return value
 }
 
+function isDebugLoggingEnabled() {
+  return process.env.NODE_ENV !== 'production'
+}
+
 export default function TeachingTools({
   sessionId,
   isTeacher,
+  currentUserId,
   folders,
   modules,
   stateApiPath,
@@ -91,10 +104,21 @@ export default function TeachingTools({
   const [selectedModuleId, setSelectedModuleId] = useState<string>('')
   const [selectedFolderId, setSelectedFolderId] = useState<string>('')
   const [whiteboardSnapshot, setWhiteboardSnapshot] = useState<string | null>(null)
+  const [annotations, setAnnotations] = useState<TeachingAnnotations>(EMPTY_TEACHING_ANNOTATIONS)
+  const [draftStroke, setDraftStroke] = useState<AnnotationStroke | null>(null)
+  const [annotationMode, setAnnotationMode] = useState(false)
+  const [annotationTool, setAnnotationTool] = useState<AnnotationTool>('pen')
+  const [annotationColor, setAnnotationColor] = useState<(typeof ANNOTATION_COLORS)[number]>(
+    ANNOTATION_COLORS[0]
+  )
+  const [annotationStrokeWidth, setAnnotationStrokeWidth] = useState<(typeof ANNOTATION_STROKE_SIZES)[number]>(
+    ANNOTATION_STROKE_SIZES[0]
+  )
   const [drawMode, setDrawMode] = useState<'draw' | 'erase'>('draw')
   const [lineWidth, setLineWidth] = useState(3)
   const [pageInput, setPageInput] = useState('1')
   const [totalPages, setTotalPages] = useState(1)
+  const channelName = useMemo(() => `session-tools-${sessionId}`, [sessionId])
   const folderNameById = useMemo(() => {
     const map = new Map<string, string>()
     folders.forEach((folder) => map.set(folder.id, folder.name))
@@ -132,6 +156,7 @@ export default function TeachingTools({
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const lessonRef = useRef(lessonState)
   const whiteboardSnapshotRef = useRef<string | null>(whiteboardSnapshot)
+  const annotationsRef = useRef<TeachingAnnotations>(annotations)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const canvasWrapRef = useRef<HTMLDivElement | null>(null)
   const drawingRef = useRef(false)
@@ -147,17 +172,36 @@ export default function TeachingTools({
   )
   const presentedFolderName =
     !presentedModule?.folder_id ? 'Ungrouped' : folderNameById.get(presentedModule.folder_id) ?? 'Ungrouped'
+  const canAnnotateMaterials =
+    isTeacher && lessonState.surface === 'materials' && Boolean(lessonState.moduleId && presentedModule)
+  const currentPageAnnotations = useMemo(() => {
+    if (!lessonState.moduleId) return []
+    return dedupeAnnotationStrokes(annotations[lessonState.moduleId]?.[String(lessonState.page)] ?? [])
+  }, [annotations, lessonState.moduleId, lessonState.page])
+
+  const logDebug = useCallback(
+    (message: string, details?: Record<string, unknown>) => {
+      if (!isDebugLoggingEnabled()) return
+      console.log(`[teaching-tools][${isTeacher ? 'teacher' : 'student'}] ${message}`, {
+        sessionId,
+        channelName,
+        ...details,
+      })
+    },
+    [channelName, isTeacher, sessionId]
+  )
 
   const broadcastEvent = useCallback(
     async (event: string, payload: Record<string, unknown>) => {
       if (!channelRef.current) return
+      logDebug('broadcast send', { event, payload })
       await channelRef.current.send({
         type: 'broadcast',
         event,
         payload,
       })
     },
-    []
+    [logDebug]
   )
 
   const normalizeLessonState = useCallback((nextLesson: LessonState): LessonState => {
@@ -170,6 +214,25 @@ export default function TeachingTools({
       scrollLeftRatio: clampRatio(nextLesson.scrollLeftRatio),
     }
   }, [])
+
+  const normalizeAnnotations = useCallback((value: unknown): TeachingAnnotations => {
+    if (!isTeachingAnnotations(value)) return EMPTY_TEACHING_ANNOTATIONS
+    return dedupeTeachingAnnotations(value)
+  }, [])
+
+  const updateAnnotationsState = useCallback((nextAnnotations: TeachingAnnotations) => {
+    const normalized = dedupeTeachingAnnotations(nextAnnotations)
+    setAnnotations(normalized)
+    annotationsRef.current = normalized
+  }, [])
+
+  const broadcastAnnotationsState = useCallback(
+    (nextAnnotations: TeachingAnnotations) => {
+      if (!isTeacher) return
+      void broadcastEvent(CHANNEL_EVENT.ANNOTATIONS_STATE, { annotations: nextAnnotations })
+    },
+    [broadcastEvent, isTeacher]
+  )
 
   const applyWhiteboardSnapshot = useCallback((dataUrl: string | null) => {
     setWhiteboardSnapshot(dataUrl)
@@ -202,16 +265,24 @@ export default function TeachingTools({
       setLessonState(normalized)
       setPageInput(String(normalized.page))
       lessonRef.current = normalized
+      updateAnnotationsState(normalizeAnnotations(snapshot.annotations))
+      setDraftStroke(null)
       applyWhiteboardSnapshot(snapshot.whiteboardSnapshot ?? null)
     },
-    [applyWhiteboardSnapshot, normalizeLessonState]
+    [applyWhiteboardSnapshot, normalizeAnnotations, normalizeLessonState, updateAnnotationsState]
   )
 
   const persistSnapshot = useCallback(
     async (snapshot: SnapshotPayload) => {
       if (!isTeacher || !stateApiPath) return
 
-      await fetch(stateApiPath, {
+      logDebug('persist teaching state', {
+        stateApiPath,
+        stateResourceParam,
+        snapshot,
+      })
+
+      const response = await fetch(stateApiPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -219,10 +290,19 @@ export default function TeachingTools({
           [stateResourceParam]: sessionId,
           lesson: snapshot.lesson,
           whiteboardSnapshot: snapshot.whiteboardSnapshot,
+          annotations: snapshot.annotations,
         }),
       })
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as TeachingStateResponse | null
+        logDebug('persist teaching state failed', {
+          status: response.status,
+          payload,
+        })
+      }
     },
-    [isTeacher, sessionId, stateApiPath, stateResourceParam]
+    [isTeacher, logDebug, sessionId, stateApiPath, stateResourceParam]
   )
 
   const syncCanvasSnapshot = useCallback(() => {
@@ -241,6 +321,7 @@ export default function TeachingTools({
     const payload: SnapshotPayload = {
       lesson: lessonRef.current,
       whiteboardSnapshot: whiteboardSnapshotRef.current,
+      annotations: annotationsRef.current,
     }
     await broadcastEvent(CHANNEL_EVENT.STATE_SNAPSHOT, payload)
     await persistSnapshot(payload)
@@ -249,6 +330,7 @@ export default function TeachingTools({
   const setLessonAndBroadcast = useCallback(
     (nextLesson: LessonState) => {
       const normalized = normalizeLessonState(nextLesson)
+      setDraftStroke(null)
       setLessonState(normalized)
       setPageInput(String(normalized.page))
       lessonRef.current = normalized
@@ -269,12 +351,18 @@ export default function TeachingTools({
   }, [whiteboardSnapshot])
 
   useEffect(() => {
-    const channel = supabase.channel(`session-tools-${sessionId}`, {
+    annotationsRef.current = annotations
+  }, [annotations])
+
+  useEffect(() => {
+    const channel = supabase.channel(channelName, {
       config: { broadcast: { self: true } },
     })
     channelRef.current = channel
+    logDebug('channel created', { subscriptionCount: 1 })
 
     channel.on('broadcast', { event: CHANNEL_EVENT.REQUEST_SYNC }, () => {
+      logDebug('received request sync')
       void sendFullSnapshot()
     })
 
@@ -282,6 +370,7 @@ export default function TeachingTools({
       if (isTeacher) return
       const next = payload as SnapshotPayload
       if (!next?.lesson) return
+      logDebug('student received state snapshot', { payload: next })
       applySnapshot(next)
     })
 
@@ -289,24 +378,53 @@ export default function TeachingTools({
       if (isTeacher) return
       const next = payload as LessonState
       if (!next) return
+      logDebug('student received lesson state', { payload: next })
       const normalized = normalizeLessonState(next)
+      setDraftStroke(null)
       setLessonState(normalized)
       setPageInput(String(normalized.page))
       lessonRef.current = normalized
     })
 
+    channel.on('broadcast', { event: CHANNEL_EVENT.ANNOTATIONS_STATE }, ({ payload }) => {
+      if (isTeacher) return
+      const next = payload as { annotations?: unknown }
+      const normalized = normalizeAnnotations(next?.annotations)
+      const committedStrokeIds = new Set(
+        Object.values(normalized).flatMap((pageMap) =>
+          Object.values(pageMap).flatMap((strokes) => strokes.map((stroke) => stroke.id))
+        )
+      )
+      logDebug('student received annotations state', {
+        moduleCount: Object.keys(normalized).length,
+      })
+      updateAnnotationsState(normalized)
+      setDraftStroke((current) => (current && committedStrokeIds.has(current.id) ? null : current))
+    })
+
+    channel.on('broadcast', { event: CHANNEL_EVENT.ANNOTATION_DRAFT }, ({ payload }) => {
+      if (isTeacher) return
+      const next = payload as { stroke?: unknown }
+      setDraftStroke(next?.stroke && typeof next.stroke === 'object' ? (next.stroke as AnnotationStroke) : null)
+    })
+
     channel.on('broadcast', { event: CHANNEL_EVENT.WHITEBOARD_SNAPSHOT }, ({ payload }) => {
       if (isTeacher) return
       const next = payload as { dataUrl?: string | null }
+      logDebug('student received whiteboard snapshot', {
+        hasDataUrl: Boolean(next?.dataUrl),
+      })
       applyWhiteboardSnapshot(next?.dataUrl ?? null)
     })
 
     channel.on('broadcast', { event: CHANNEL_EVENT.WHITEBOARD_CLEAR }, () => {
       if (isTeacher) return
+      logDebug('student received whiteboard clear')
       applyWhiteboardSnapshot(null)
     })
 
     channel.subscribe((status) => {
+      logDebug('channel subscribe status', { status })
       if (status !== 'SUBSCRIBED') return
       if (isTeacher) {
         void sendFullSnapshot()
@@ -316,10 +434,22 @@ export default function TeachingTools({
     })
 
     return () => {
+      logDebug('channel removed')
       void supabase.removeChannel(channel)
       channelRef.current = null
     }
-  }, [applySnapshot, applyWhiteboardSnapshot, broadcastEvent, isTeacher, normalizeLessonState, sendFullSnapshot, sessionId])
+  }, [
+    applySnapshot,
+    applyWhiteboardSnapshot,
+    broadcastEvent,
+    channelName,
+    isTeacher,
+    logDebug,
+    normalizeLessonState,
+    sendFullSnapshot,
+    normalizeAnnotations,
+    updateAnnotationsState,
+  ])
 
   useEffect(() => {
     if (isTeacher || !stateApiPath) return
@@ -341,12 +471,22 @@ export default function TeachingTools({
           }
         )
         const payload = (await response.json()) as TeachingStateResponse
+        logDebug('initial hydrated teaching state', {
+          stateApiPath,
+          payload,
+          ok: response.ok,
+        })
         if (!response.ok || !payload.lesson || cancelled) return
         applySnapshot({
           lesson: payload.lesson,
           whiteboardSnapshot: payload.whiteboardSnapshot ?? null,
+          annotations: normalizeAnnotations(payload.annotations),
         })
-      } catch {
+      } catch (error) {
+        logDebug('teaching state hydration failed', {
+          stateApiPath,
+          error: error instanceof Error ? error.message : 'unknown error',
+        })
         // Realtime remains the primary in-room transport; polling will try again.
       }
     }
@@ -360,7 +500,7 @@ export default function TeachingTools({
       cancelled = true
       if (intervalId) window.clearInterval(intervalId)
     }
-  }, [applySnapshot, isTeacher, sessionId, stateApiPath, stateResourceParam])
+  }, [applySnapshot, isTeacher, logDebug, normalizeAnnotations, sessionId, stateApiPath, stateResourceParam])
 
   useEffect(() => {
     if (!isTeacher) return
@@ -376,6 +516,7 @@ export default function TeachingTools({
     lessonState.scrollTopRatio,
     lessonState.scrollLeftRatio,
     whiteboardSnapshot,
+    annotations,
   ])
 
   useEffect(() => {
@@ -454,17 +595,122 @@ export default function TeachingTools({
     void broadcastEvent(CHANNEL_EVENT.WHITEBOARD_CLEAR, {})
   }
 
+  const setAnnotationsAndBroadcast = useCallback(
+    (nextAnnotations: TeachingAnnotations) => {
+      updateAnnotationsState(nextAnnotations)
+      setDraftStroke(null)
+      broadcastAnnotationsState(nextAnnotations)
+    },
+    [broadcastAnnotationsState, updateAnnotationsState]
+  )
+
+  const updateModulePageAnnotations = useCallback(
+    (
+      moduleId: string,
+      page: number,
+      updater: (strokes: AnnotationStroke[]) => AnnotationStroke[]
+    ) => {
+      const pageKey = String(page)
+      const moduleAnnotations = annotationsRef.current[moduleId] ?? {}
+      const nextPageStrokes = dedupeAnnotationStrokes(updater(moduleAnnotations[pageKey] ?? []))
+      const nextModuleAnnotations = { ...moduleAnnotations }
+
+      if (nextPageStrokes.length > 0) {
+        nextModuleAnnotations[pageKey] = nextPageStrokes
+      } else {
+        delete nextModuleAnnotations[pageKey]
+      }
+
+      const nextAnnotations = { ...annotationsRef.current }
+      if (Object.keys(nextModuleAnnotations).length > 0) {
+        nextAnnotations[moduleId] = nextModuleAnnotations
+      } else {
+        delete nextAnnotations[moduleId]
+      }
+
+      setAnnotationsAndBroadcast(nextAnnotations)
+    },
+    [setAnnotationsAndBroadcast]
+  )
+
+  useEffect(() => {
+    if (!isDebugLoggingEnabled()) return
+    const strokeIds = currentPageAnnotations.map((stroke) => stroke.id)
+    const duplicateIds = strokeIds.filter((id, index) => strokeIds.indexOf(id) !== index)
+
+    logDebug('annotation page stats', {
+      moduleId: lessonState.moduleId,
+      page: lessonState.page,
+      committedStrokeCount: currentPageAnnotations.length,
+      draftStrokeId: draftStroke?.id ?? null,
+      duplicateIds,
+    })
+  }, [currentPageAnnotations, draftStroke?.id, lessonState.moduleId, lessonState.page, logDebug])
+
+  const handleAnnotationDraftChange = useCallback(
+    (stroke: AnnotationStroke | null) => {
+      setDraftStroke(stroke)
+      if (!isTeacher) return
+      void broadcastEvent(CHANNEL_EVENT.ANNOTATION_DRAFT, { stroke })
+    },
+    [broadcastEvent, isTeacher]
+  )
+
+  const handleAnnotationCommit = useCallback(
+    (stroke: AnnotationStroke) => {
+      if (!isTeacher || !lessonRef.current.moduleId || stroke.points.length === 0) return
+      updateModulePageAnnotations(lessonRef.current.moduleId, stroke.page, (strokes) => [...strokes, stroke])
+    },
+    [isTeacher, updateModulePageAnnotations]
+  )
+
+  const handleAnnotationErase = useCallback(
+    (point: AnnotationPoint, radius: number) => {
+      if (!isTeacher || !lessonRef.current.moduleId) return
+
+      updateModulePageAnnotations(lessonRef.current.moduleId, lessonRef.current.page, (strokes) =>
+        strokes.filter(
+          (stroke) =>
+            !stroke.points.some((strokePoint) => {
+              const dx = strokePoint.x - point.x
+              const dy = strokePoint.y - point.y
+              return Math.sqrt(dx * dx + dy * dy) <= radius
+            })
+        )
+      )
+    },
+    [isTeacher, updateModulePageAnnotations]
+  )
+
+  const clearCurrentPageAnnotations = useCallback(() => {
+    if (!isTeacher || !lessonRef.current.moduleId) return
+    updateModulePageAnnotations(lessonRef.current.moduleId, lessonRef.current.page, () => [])
+  }, [isTeacher, updateModulePageAnnotations])
+
+  const clearAllModuleAnnotations = useCallback(() => {
+    if (!isTeacher || !lessonRef.current.moduleId) return
+    const nextAnnotations = { ...annotationsRef.current }
+    delete nextAnnotations[lessonRef.current.moduleId]
+    setAnnotationsAndBroadcast(nextAnnotations)
+  }, [isTeacher, setAnnotationsAndBroadcast])
+
   const openModule = () => {
     if (!isTeacher || !effectiveSelectedModuleId) return
     setTotalPages(1)
-    setLessonAndBroadcast({
+    const nextState = {
       surface: 'materials',
       moduleId: effectiveSelectedModuleId,
       page: 1,
       zoom: lessonRef.current.zoom,
       scrollTopRatio: 0,
       scrollLeftRatio: 0,
+    } satisfies LessonState
+    logDebug('teacher present payload', {
+      selectedFolderId: effectiveSelectedFolderId,
+      selectedModuleId: effectiveSelectedModuleId,
+      nextState,
     })
+    setLessonAndBroadcast(nextState)
   }
 
   const closeModule = () => {
@@ -612,23 +858,25 @@ export default function TeachingTools({
                 )}
 
                 {presentedModule && (
-                  <div className="flex h-full min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-[0_22px_58px_-36px_rgba(15,23,42,0.62)]">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{presentedModule.title}</p>
+                  <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_22px_58px_-36px_rgba(15,23,42,0.62)]">
+                    <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-2.5 py-2 sm:px-3">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-slate-900">
+                          {presentedModule.title}
+                        </p>
                         <p className="text-xs text-slate-500">
                           Page {lessonState.page}
                           {isTeacher ? ` | Zoom ${lessonState.zoom}%` : ' | Synced view'}
                         </p>
-                        <p className="text-xs text-slate-500">Folder: {presentedFolderName}</p>
+                        <p className="break-words text-xs text-slate-500">Folder: {presentedFolderName}</p>
                       </div>
                       {!isTeacher && (
-                        <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
                           Read-only
                         </span>
                       )}
                     </div>
-                    <div className="min-h-0 flex-1 overflow-hidden">
+                    <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-2 sm:p-3">
                       <ControlledPdfStage
                         fileUrl={presentedModule.signedUrl}
                         page={lessonState.page}
@@ -638,6 +886,16 @@ export default function TeachingTools({
                         scrollLeftRatio={lessonState.scrollLeftRatio}
                         onTotalPagesChange={setTotalPages}
                         onScrollRatioChange={handleTeacherMaterialScroll}
+                        annotations={currentPageAnnotations}
+                        draftStroke={draftStroke?.page === lessonState.page ? draftStroke : null}
+                        annotationMode={annotationMode}
+                        annotationTool={annotationTool}
+                        annotationColor={annotationColor}
+                        annotationStrokeWidth={annotationStrokeWidth}
+                        onDraftStrokeChange={handleAnnotationDraftChange}
+                        onStrokeCommit={handleAnnotationCommit}
+                        onEraseAtPoint={handleAnnotationErase}
+                        currentUserId={currentUserId}
                       />
                     </div>
                   </div>
@@ -745,6 +1003,94 @@ export default function TeachingTools({
                       >
                         + Zoom
                       </button>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-300">
+                          Annotations
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setAnnotationMode((current) => !current)}
+                          disabled={!canAnnotateMaterials}
+                          className={`rounded-lg px-3 py-1.5 text-[11px] font-medium transition ${
+                            annotationMode && canAnnotateMaterials
+                              ? 'bg-[#b8966b] text-white'
+                              : 'border border-slate-700 bg-slate-900 text-slate-200 disabled:opacity-50'
+                          }`}
+                        >
+                          {annotationMode ? 'Annotate On' : 'Annotate Off'}
+                        </button>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {(['pen', 'highlighter', 'eraser'] as const).map((tool) => (
+                          <button
+                            key={tool}
+                            type="button"
+                            onClick={() => setAnnotationTool(tool)}
+                            disabled={!canAnnotateMaterials}
+                            className={`rounded-lg px-2 py-2 text-[11px] font-medium capitalize transition ${
+                              annotationTool === tool
+                                ? 'bg-slate-200 text-slate-950'
+                                : 'border border-slate-700 bg-slate-900 text-slate-200 disabled:opacity-50'
+                            }`}
+                          >
+                            {tool}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="mt-2 block text-[11px] text-slate-400">Color</label>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {ANNOTATION_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setAnnotationColor(color)}
+                            disabled={!canAnnotateMaterials || annotationTool === 'eraser'}
+                            aria-label={`Select annotation color ${color}`}
+                            className={`h-7 w-7 rounded-full border-2 transition ${
+                              annotationColor === color ? 'border-white' : 'border-slate-700'
+                            } disabled:opacity-40`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                      <label className="mt-2 block text-[11px] text-slate-400">Stroke size</label>
+                      <div className="mt-1 grid grid-cols-3 gap-2">
+                        {ANNOTATION_STROKE_SIZES.map((size) => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setAnnotationStrokeWidth(size)}
+                            disabled={!canAnnotateMaterials}
+                            className={`rounded-lg px-2 py-2 text-[11px] font-medium transition ${
+                              annotationStrokeWidth === size
+                                ? 'bg-slate-200 text-slate-950'
+                                : 'border border-slate-700 bg-slate-900 text-slate-200 disabled:opacity-50'
+                            }`}
+                          >
+                            {size}px
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-2">
+                        <button
+                          type="button"
+                          onClick={clearCurrentPageAnnotations}
+                          disabled={!canAnnotateMaterials || currentPageAnnotations.length === 0}
+                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-medium text-slate-200 disabled:opacity-50"
+                        >
+                          Clear This Page
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearAllModuleAnnotations}
+                          disabled={!canAnnotateMaterials || !(lessonState.moduleId && annotations[lessonState.moduleId])}
+                          className="rounded-lg border border-rose-700/60 bg-rose-900/20 px-3 py-2 text-[11px] font-medium text-rose-200 disabled:opacity-50"
+                        >
+                          Clear All Pages
+                        </button>
+                      </div>
                     </div>
                     <button
                       type="button"

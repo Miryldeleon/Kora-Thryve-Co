@@ -434,6 +434,7 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
                   className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-3 lg:p-4"
                   sessionId={session.id}
                   isTeacher={isTeacher}
+                  currentUserId={user.id}
                   stateApiPath="/api/group-session-teaching-state"
                   stateResourceParam="sessionId"
                   folders={folders}

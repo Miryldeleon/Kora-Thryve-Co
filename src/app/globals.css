@@ -2,25 +2,136 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #2f3a33;
+  --cream: #f8f6f1;
+  --sage-green: #9aa397;
+  --deep-forest: #2f3a33;
+  --warm-sand: #d9c19e;
+  --soft-mint: #dcefe5;
+  --sunshine-yellow: #f2d46b;
+  --soft-peach: #f4b39a;
+  --fresh-leaf: #8fbf7a;
+  --body-muted: #5a6b5e;
+  --shadow-soft: 0 24px 60px -32px rgb(47 58 51 / 0.24);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "DM Sans", sans-serif;
+  --font-mono: monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "DM Sans", sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Nunito", sans-serif;
+}
+
+a,
+button {
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--soft-mint) 75%, white 25%);
+  color: var(--deep-forest);
+}
+
+.font-display {
+  font-family: "Nunito", sans-serif;
+}
+
+.marketing-blob {
+  position: absolute;
+  pointer-events: none;
+  filter: blur(0.2px);
+}
+
+.marketing-surface {
+  border: 1px solid rgb(154 163 151 / 0.12);
+  box-shadow: var(--shadow-soft);
+}
+
+.animate-float-soft {
+  animation: float-soft 8s ease-in-out infinite;
+}
+
+.animate-float-slower {
+  animation: float-soft 11s ease-in-out infinite;
+}
+
+.animate-fade-rise {
+  animation: fade-rise 0.7s cubic-bezier(0.43, 0.13, 0.23, 0.96) both;
+}
+
+.animate-fade-delay-1 {
+  animation-delay: 0.12s;
+}
+
+.animate-fade-delay-2 {
+  animation-delay: 0.24s;
+}
+
+.animate-fade-delay-3 {
+  animation-delay: 0.36s;
+}
+
+.animate-fade-delay-4 {
+  animation-delay: 0.48s;
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-10px) rotate(1.2deg);
+  }
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
 }
