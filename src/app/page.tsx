@@ -1,11 +1,27 @@
+'use client'
+
 import Image from 'next/image'
 import Link from 'next/link'
+import { motion, useReducedMotion } from 'motion/react'
 import {
   MarketingCtaSection,
   MarketingFooter,
   MarketingNavbar,
   SectionContainer,
 } from '@/components/marketing/site-chrome'
+import {
+  cardReveal,
+  fadeDown,
+  fadeUp,
+  imageReveal,
+  listItemReveal,
+  sectionReveal,
+  staggerContainer,
+  viewportOnce,
+  withReducedMotion,
+} from '@/lib/animations'
+
+const MotionLink = motion.create(Link)
 
 const services = [
   {
@@ -235,6 +251,14 @@ function DetailRow({
 }
 
 export default function HomePage() {
+  const shouldReduceMotion = useReducedMotion()
+  const reveal = (variant: Parameters<typeof withReducedMotion>[0]) =>
+    withReducedMotion(variant, shouldReduceMotion)
+  const buttonHover = shouldReduceMotion ? undefined : { scale: 1.03 }
+  const buttonTap = shouldReduceMotion ? undefined : { scale: 0.98 }
+  const cardHover = shouldReduceMotion ? undefined : { y: -8 }
+  const imageHover = shouldReduceMotion ? undefined : { scale: 1.03 }
+
   return (
     <main className="overflow-hidden bg-white text-[var(--deep-forest)]">
       <section className="relative isolate overflow-hidden bg-white">
@@ -254,75 +278,96 @@ export default function HomePage() {
           path="M73 119Q78 42 153 56t107 68q32 54-15 106T129 245Q18 196 73 119Z"
         />
 
-        <MarketingNavbar />
+        <motion.div initial="hidden" animate="visible" variants={reveal(fadeDown)}>
+          <MarketingNavbar activePath="/" />
+        </motion.div>
 
-        <SectionContainer className="grid min-h-[calc(100vh-6rem)] items-center gap-14 pb-18 pt-8 lg:grid-cols-[1.03fr_0.97fr] lg:pb-24 lg:pt-10">
+        <SectionContainer className="grid min-h-[calc(100vh-6rem)] items-center gap-10 pb-16 pt-8 md:gap-12 lg:grid-cols-[1.18fr_0.82fr] lg:gap-12 lg:pb-24 lg:pt-10">
           <div className="relative z-10">
-            <Pill className="animate-fade-rise w-fit border-[color:rgb(217_193_158/0.35)] bg-[color:rgb(217_193_158/0.18)] text-[var(--deep-forest)]">
-              <span className="text-[var(--sunshine-yellow)]">
-                <Icon type="sparkles" className="h-4 w-4" />
-              </span>
-              <span>A gentle learning space for every learner</span>
-            </Pill>
+            <motion.div initial="hidden" animate="visible" variants={reveal(fadeDown)}>
+              <Pill className="w-fit border-[color:rgb(217_193_158/0.35)] bg-[color:rgb(217_193_158/0.18)] text-[var(--deep-forest)]">
+                <span className="text-[var(--sunshine-yellow)]">
+                  <Icon type="sparkles" className="h-4 w-4" />
+                </span>
+                <span>A gentle learning space for every learner</span>
+              </Pill>
+            </motion.div>
 
-            <h1 className="animate-fade-rise animate-fade-delay-1 mt-6 max-w-[12ch] text-5xl font-extrabold leading-[0.95] tracking-[-0.04em] text-[var(--sage-green)] sm:text-6xl lg:text-7xl">
-              Learn with Purpose. Grow with Guidance.
-            </h1>
+            <motion.h1
+              className="mt-6 text-4xl font-extrabold leading-[0.95] tracking-[-0.04em] text-[var(--sage-green)] min-[380px]:text-5xl sm:text-6xl lg:text-7xl"
+              initial="hidden"
+              animate="visible"
+              variants={reveal(fadeUp)}
+            >
+              <span className="block whitespace-nowrap">Learn with</span>
+              <span className="block whitespace-nowrap">Purpose. Grow</span>
+              <span className="block whitespace-nowrap">with Guidance.</span>
+            </motion.h1>
 
-            <p className="animate-fade-rise animate-fade-delay-2 mt-6 max-w-2xl text-lg leading-8 text-[var(--body-muted)] sm:text-xl">
+            <motion.p
+              className="mt-6 max-w-2xl text-lg leading-8 text-[var(--body-muted)] sm:text-xl"
+              initial="hidden"
+              animate="visible"
+              variants={reveal(fadeUp)}
+            >
               Personalized tutoring, wellness support, life skills coaching, and voice care designed to
               help every learner thrive.
-            </p>
+            </motion.p>
 
-            <div className="animate-fade-rise animate-fade-delay-3 mt-9 flex flex-col gap-4 sm:flex-row">
-              <Link
+            <motion.div
+              className="mt-9 flex flex-col gap-4 sm:flex-row"
+              initial="hidden"
+              animate="visible"
+              variants={reveal(fadeUp)}
+            >
+              <MotionLink
                 href="/signup"
                 className="inline-flex items-center justify-center rounded-full bg-[var(--sage-green)] px-10 py-5 text-lg font-bold text-white shadow-[0_24px_45px_-24px_rgba(47,58,51,0.55)] hover:-translate-y-1 hover:bg-[var(--fresh-leaf)]"
+                whileHover={buttonHover}
+                whileTap={buttonTap}
+                transition={{ duration: 0.25 }}
               >
                 Get Started
-              </Link>
-              <Link
-                href="/#featured-classes"
+              </MotionLink>
+              <MotionLink
+                href="/classes"
                 className="inline-flex items-center justify-center rounded-full border border-[color:rgb(154_163_151/0.25)] bg-[var(--cream)] px-10 py-5 text-lg font-bold text-[var(--deep-forest)] shadow-[0_18px_35px_-30px_rgba(47,58,51,0.35)] hover:-translate-y-1 hover:bg-white"
+                whileHover={buttonHover}
+                whileTap={buttonTap}
+                transition={{ duration: 0.25 }}
               >
                 Explore Classes
-              </Link>
-            </div>
+              </MotionLink>
+            </motion.div>
           </div>
 
-          <div className="relative hidden min-h-[560px] lg:block">
+          <motion.div
+            className="relative z-10 mx-auto min-h-[250px] w-full max-w-[700px] md:min-h-[360px] lg:min-h-[470px]"
+            initial="hidden"
+            animate="visible"
+            variants={reveal(imageReveal)}
+          >
             <Blob
-              className="animate-float-soft left-6 top-24 h-56 w-56 opacity-80"
+              className="animate-float-soft left-0 top-6 h-40 w-40 opacity-50 md:left-4 md:top-10 md:h-52 md:w-52 md:opacity-65"
               color="color-mix(in srgb, var(--soft-peach) 48%, white 52%)"
               path="M70 136Q45 80 88 49t102-7q59 24 63 78t-45 97q-49 43-98 18T70 136Z"
             />
             <Blob
-              className="animate-float-slower bottom-8 right-2 h-64 w-64 opacity-70"
+              className="animate-float-slower bottom-4 right-0 h-48 w-48 opacity-50 md:bottom-6 md:right-4 md:h-60 md:w-60 md:opacity-62"
               color="color-mix(in srgb, var(--warm-sand) 40%, white 60%)"
               path="M91 104Q116 38 184 54t75 84q7 68-50 114T83 227q-69-41-48-123 21 0 56-104Z"
             />
-            <div className="absolute right-12 top-6 rounded-full border-4 border-white bg-[var(--fresh-leaf)] px-5 py-4 text-center text-sm font-extrabold text-white shadow-[0_18px_40px_-24px_rgba(47,58,51,0.55)]">
-              Trusted
-              <br />
-              Support
+            <div className="relative left-1/2 h-[250px] w-[min(92vw,520px)] -translate-x-1/2 md:h-[370px] md:w-[min(82vw,640px)] lg:h-[580px] lg:w-[1100px] lg:-translate-x-[40%] xl:w-[1180px]">
+              <Image
+                src="/marketing/hero-page-3.png"
+                alt="Children smiling while learning together with a tablet"
+                fill
+                priority
+                className="object-contain drop-shadow-[0_32px_42px_rgba(47,58,51,0.16)]"
+                sizes="(max-width: 768px) 92vw, (max-width: 1024px) 82vw, (max-width: 1280px) 1100px, 1180px"
+              />
             </div>
-            <div className="marketing-surface absolute inset-y-12 left-16 right-10 overflow-hidden rounded-[2.5rem] border border-dashed border-[color:rgb(154_163_151/0.25)] bg-white/80 p-6">
-              <div className="absolute inset-x-8 inset-y-8 overflow-hidden rounded-[2.2rem]">
-                <Image
-                  src="/marketing/homepage_main.png"
-                  alt="Kora Thryve learners in a welcoming session"
-                  fill
-                  priority
-                  className="object-cover"
-                  sizes="(max-width: 1280px) 42vw, 520px"
-                />
-                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.04))]" />
-              </div>
-              <div className="absolute bottom-10 left-10 rounded-full bg-white/88 px-5 py-3 text-sm font-semibold text-[var(--body-muted)] shadow-[0_20px_35px_-28px_rgba(47,58,51,0.55)]">
-                Personalized support, calm pacing, meaningful growth
-              </div>
-            </div>
-          </div>
+          </motion.div>
         </SectionContainer>
       </section>
 
@@ -342,12 +387,21 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="mt-12 flex snap-x gap-5 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-4">
+          <motion.div
+            className="mt-12 flex snap-x gap-5 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-4"
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+            variants={staggerContainer}
+          >
             {services.map((service, index) => (
-              <article
+              <motion.article
                 key={service.title}
                 className="marketing-surface min-w-[290px] snap-start rounded-[2rem] bg-[var(--cream)] p-8 hover:-translate-y-2 hover:shadow-[0_30px_60px_-30px_rgba(47,58,51,0.28)] md:min-w-0"
                 style={{ animationDelay: `${index * 0.08}s` }}
+                variants={reveal(cardReveal)}
+                whileHover={cardHover}
+                transition={{ duration: 0.25 }}
               >
                 <div
                   className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] text-[var(--deep-forest)]"
@@ -359,9 +413,9 @@ export default function HomePage() {
                   {service.title}
                 </h3>
                 <p className="mt-4 text-base leading-7 text-[var(--body-muted)]">{service.description}</p>
-              </article>
+              </motion.article>
             ))}
-          </div>
+          </motion.div>
         </SectionContainer>
       </section>
 
@@ -387,20 +441,31 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="mt-12 grid gap-6 lg:grid-cols-3">
+          <motion.div
+            className="mt-12 grid gap-6 lg:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+            variants={staggerContainer}
+          >
             {featuredClasses.map((item) => (
-              <article
+              <motion.article
                 key={item.title}
                 className="marketing-surface group overflow-hidden rounded-[2rem] bg-white hover:-translate-y-2 hover:shadow-[0_30px_65px_-30px_rgba(47,58,51,0.28)]"
+                variants={reveal(cardReveal)}
+                whileHover={cardHover}
+                transition={{ duration: 0.25 }}
               >
                 <div className="relative h-64 overflow-hidden">
-                  <Image
-                    src={item.image}
-                    alt={item.title}
-                    fill
-                    className="object-cover transition duration-500 group-hover:scale-[1.03]"
-                    sizes="(max-width: 1024px) 100vw, 33vw"
-                  />
+                  <motion.div className="absolute inset-0" whileHover={imageHover} transition={{ duration: 0.3 }}>
+                    <Image
+                      src={item.image}
+                      alt={item.title}
+                      fill
+                      className="object-cover transition duration-500 group-hover:scale-[1.03]"
+                      sizes="(max-width: 1024px) 100vw, 33vw"
+                    />
+                  </motion.div>
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(47,58,51,0.05),rgba(47,58,51,0.14))]" />
                   <div
                     className="absolute left-5 top-5 rounded-full px-4 py-2 text-sm font-bold text-[var(--deep-forest)]"
@@ -424,33 +489,45 @@ export default function HomePage() {
                     <DetailRow icon="clock">{item.time}</DetailRow>
                     <DetailRow icon="video">{item.format}</DetailRow>
                   </div>
-                  <Link
-                    href="/signup"
+                  <MotionLink
+                    href="/classes"
                     className="relative z-10 mt-7 inline-flex items-center gap-2 rounded-full border border-[color:rgb(154_163_151/0.2)] bg-[var(--cream)] px-6 py-3.5 text-sm font-bold text-[var(--deep-forest)] hover:bg-[var(--sage-green)] hover:text-white"
+                    whileHover={buttonHover}
+                    whileTap={buttonTap}
+                    transition={{ duration: 0.25 }}
                   >
                     Learn More
                     <Icon type="arrow" className="h-4 w-4" />
-                  </Link>
+                  </MotionLink>
                 </div>
-              </article>
+              </motion.article>
             ))}
-          </div>
+          </motion.div>
 
           <div className="mt-12 text-center">
-            <Link
-              href="/signup"
+            <MotionLink
+              href="/classes"
               className="inline-flex items-center gap-2 rounded-full border border-[color:rgb(154_163_151/0.24)] bg-white px-8 py-4 text-lg font-bold text-[var(--sage-green)] shadow-[0_18px_38px_-28px_rgba(47,58,51,0.35)] hover:-translate-y-1 hover:bg-[var(--sage-green)] hover:text-white"
+              whileHover={buttonHover}
+              whileTap={buttonTap}
+              transition={{ duration: 0.25 }}
             >
               View All Classes
               <Icon type="arrow" className="h-4 w-4" />
-            </Link>
+            </MotionLink>
           </div>
         </SectionContainer>
       </section>
 
       <section id="why-kora-thryve" className="bg-[color:rgb(217_193_158/0.12)] py-16 sm:py-20 lg:py-28">
         <SectionContainer className="grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="relative">
+          <motion.div
+            className="relative"
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+            variants={reveal(imageReveal)}
+          >
             <div className="marketing-surface relative min-h-[350px] overflow-hidden rounded-[2rem] border-8 border-white sm:min-h-[440px] lg:min-h-[550px]">
               <Image
                 src="/marketing/homepage_environment.png"
@@ -460,15 +537,31 @@ export default function HomePage() {
                 sizes="(max-width: 1024px) 100vw, 44vw"
               />
             </div>
-          </div>
+          </motion.div>
 
           <div>
-            <h2 className="text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl">
+            <motion.h2
+              className="text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(sectionReveal)}
+            >
               Why Choose Kora Thryve
-            </h2>
-            <div className="mt-10 space-y-6">
+            </motion.h2>
+            <motion.div
+              className="mt-10 space-y-6"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={staggerContainer}
+            >
               {reasons.map((reason) => (
-                <div key={reason.title} className="flex gap-5 rounded-[2rem] bg-white/70 p-5">
+                <motion.div
+                  key={reason.title}
+                  className="flex gap-5 rounded-[2rem] bg-white/70 p-5"
+                  variants={reveal(listItemReveal)}
+                >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--fresh-leaf)] text-white">
                     <Icon type="check" />
                   </div>
@@ -476,9 +569,9 @@ export default function HomePage() {
                     <h3 className="text-xl font-extrabold text-[var(--deep-forest)]">{reason.title}</h3>
                     <p className="mt-2 text-base leading-7 text-[var(--body-muted)]">{reason.description}</p>
                   </div>
-                </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </SectionContainer>
       </section>
@@ -496,16 +589,40 @@ export default function HomePage() {
         />
         <SectionContainer className="grid items-center gap-12 lg:grid-cols-[1.02fr_0.98fr]">
           <div>
-            <h2 className="text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl">
+            <motion.h2
+              className="text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(sectionReveal)}
+            >
               How It Works
-            </h2>
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-[var(--body-muted)] sm:text-xl">
+            </motion.h2>
+            <motion.p
+              className="mt-4 max-w-2xl text-lg leading-8 text-[var(--body-muted)] sm:text-xl"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(fadeUp)}
+            >
               Getting started is simple, supportive, and designed around every learner’s journey.
-            </p>
+            </motion.p>
 
-            <div className="mt-10 space-y-5">
+            <motion.div
+              className="mt-10 space-y-5"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={staggerContainer}
+            >
               {steps.map((step) => (
-                <article key={step.number} className="marketing-surface rounded-[2rem] bg-[var(--cream)] p-6">
+                <motion.article
+                  key={step.number}
+                  className="marketing-surface rounded-[2rem] bg-[var(--cream)] p-6"
+                  variants={reveal(listItemReveal)}
+                  whileHover={cardHover}
+                  transition={{ duration: 0.25 }}
+                >
                   <div className="flex gap-5">
                     <div
                       className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.4rem] text-xl font-extrabold text-white"
@@ -518,9 +635,9 @@ export default function HomePage() {
                       <p className="mt-2 text-base leading-7 text-[var(--body-muted)]">{step.description}</p>
                     </div>
                   </div>
-                </article>
+                </motion.article>
               ))}
-            </div>
+            </motion.div>
 
             <div className="mt-8 inline-flex items-center gap-3 rounded-full bg-[color:rgb(220_239_229/0.65)] px-5 py-3 text-sm font-semibold text-[var(--deep-forest)]">
               <span className="text-[var(--fresh-leaf)]">
@@ -530,7 +647,13 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="relative">
+          <motion.div
+            className="relative"
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+            variants={reveal(imageReveal)}
+          >
             <Blob
               className="bottom-6 left-[-2rem] h-44 w-44 opacity-35"
               color="color-mix(in srgb, var(--warm-sand) 45%, white 55%)"
@@ -550,13 +673,19 @@ export default function HomePage() {
               <br />
               Growth
             </div>
-          </div>
+          </motion.div>
         </SectionContainer>
       </section>
 
       <section className="relative overflow-hidden bg-[var(--cream)] py-16 sm:py-20 lg:py-28">
         <SectionContainer className="grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="relative">
+          <motion.div
+            className="relative"
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewportOnce}
+            variants={reveal(imageReveal)}
+          >
             <Blob
               className="left-[-2rem] top-6 h-44 w-44 opacity-30"
               color="color-mix(in srgb, var(--soft-peach) 44%, white 56%)"
@@ -577,20 +706,40 @@ export default function HomePage() {
             <div className="absolute bottom-5 right-5 rounded-full border-4 border-white bg-[var(--sunshine-yellow)] px-5 py-3 text-sm font-extrabold text-[var(--deep-forest)] shadow-[0_18px_35px_-24px_rgba(47,58,51,0.48)]">
               Parent Feedback
             </div>
-          </div>
+          </motion.div>
 
           <div>
-            <Pill className="w-fit border-[color:rgb(154_163_151/0.2)] bg-white text-[var(--sage-green)]">
-              TESTIMONIAL
-            </Pill>
-            <h2 className="mt-6 text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl">
+            <motion.div initial="hidden" whileInView="visible" viewport={viewportOnce} variants={reveal(fadeDown)}>
+              <Pill className="w-fit border-[color:rgb(154_163_151/0.2)] bg-white text-[var(--sage-green)]">
+                TESTIMONIAL
+              </Pill>
+            </motion.div>
+            <motion.h2
+              className="mt-6 text-4xl font-extrabold tracking-[-0.04em] text-[var(--deep-forest)] sm:text-5xl lg:text-6xl"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(sectionReveal)}
+            >
               What Our Families Say
-            </h2>
-            <p className="mt-4 text-lg leading-8 text-[var(--body-muted)] sm:text-xl">
+            </motion.h2>
+            <motion.p
+              className="mt-4 text-lg leading-8 text-[var(--body-muted)] sm:text-xl"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(fadeUp)}
+            >
               Real feedback from learners and families who have grown with Kora Thryve.
-            </p>
+            </motion.p>
 
-            <div className="marketing-surface relative mt-10 overflow-hidden rounded-[2rem] bg-white p-8 sm:p-10">
+            <motion.div
+              className="marketing-surface relative mt-10 overflow-hidden rounded-[2rem] bg-white p-8 sm:p-10"
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportOnce}
+              variants={reveal(imageReveal)}
+            >
               <Blob
                 className="right-2 top-2 h-28 w-28 opacity-18"
                 color="color-mix(in srgb, var(--soft-mint) 55%, white 45%)"
@@ -613,20 +762,26 @@ export default function HomePage() {
 
               <div className="relative z-10 mt-8 flex items-center justify-between">
                 <div className="flex gap-3">
-                  <button
+                  <motion.button
                     type="button"
                     aria-label="Previous testimonial"
                     className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--sage-green)] text-white hover:bg-[var(--fresh-leaf)]"
+                    whileHover={buttonHover}
+                    whileTap={buttonTap}
+                    transition={{ duration: 0.25 }}
                   >
                     ‹
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     type="button"
                     aria-label="Next testimonial"
                     className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--sage-green)] text-white hover:bg-[var(--fresh-leaf)]"
+                    whileHover={buttonHover}
+                    whileTap={buttonTap}
+                    transition={{ duration: 0.25 }}
                   >
                     ›
-                  </button>
+                  </motion.button>
                 </div>
                 <div className="flex gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-[var(--sage-green)]" />
@@ -634,7 +789,7 @@ export default function HomePage() {
                   <span className="h-2.5 w-2.5 rounded-full bg-[color:rgb(154_163_151/0.28)]" />
                 </div>
               </div>
-            </div>
+            </motion.div>
 
             <p className="mt-5 text-sm italic text-[var(--body-muted)]">
               Growing with guidance, every step of the way.
@@ -643,11 +798,13 @@ export default function HomePage() {
         </SectionContainer>
       </section>
 
-      <MarketingCtaSection
-        title="Start Your Journey with Kora Thryve"
-        buttonLabel="Get Started Today"
-        buttonHref="/signup"
-      />
+      <motion.div initial="hidden" whileInView="visible" viewport={viewportOnce} variants={reveal(fadeUp)}>
+        <MarketingCtaSection
+          title="Start Your Journey with Kora Thryve"
+          buttonLabel="Get Started Today"
+          buttonHref="/signup"
+        />
+      </motion.div>
 
       <MarketingFooter />
     </main>

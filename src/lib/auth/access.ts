@@ -20,7 +20,7 @@ export function isApprovalStatus(value: unknown): value is ApprovalStatus {
 }
 
 export function isProtectedRoleRoute(pathname: string) {
-  return pathname.startsWith('/teacher') || pathname.startsWith('/student')
+  return isRouteOrNested(pathname, '/teacher') || isRouteOrNested(pathname, '/student')
 }
 
 export function isAdminRoute(pathname: string) {
@@ -41,9 +41,13 @@ export function isAuthRoute(pathname: string) {
 }
 
 export function getRoleRoutePrefix(pathname: string): UserRole | null {
-  if (pathname.startsWith('/teacher')) return 'teacher'
-  if (pathname.startsWith('/student')) return 'student'
+  if (isRouteOrNested(pathname, '/teacher')) return 'teacher'
+  if (isRouteOrNested(pathname, '/student')) return 'student'
   return null
+}
+
+function isRouteOrNested(pathname: string, route: string) {
+  return pathname === route || pathname.startsWith(`${route}/`)
 }
 
 export function getRedirectPathForProfile(profile: UserProfile): string {
