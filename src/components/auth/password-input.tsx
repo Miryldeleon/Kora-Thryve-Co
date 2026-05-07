@@ -43,7 +43,10 @@ function EyeIcon({ hidden }: { hidden: boolean }) {
 
 type PasswordInputProps = {
   autoComplete: string
+  buttonClassName?: string
+  inputClassName?: string
   label: string
+  labelClassName?: string
   name: string
   onChange?: ChangeEventHandler<HTMLInputElement>
   required?: boolean
@@ -52,7 +55,10 @@ type PasswordInputProps = {
 
 export function PasswordInput({
   autoComplete,
+  buttonClassName,
+  inputClassName,
   label,
+  labelClassName,
   name,
   onChange,
   required = true,
@@ -62,7 +68,7 @@ export function PasswordInput({
   const inputId = useId()
 
   return (
-    <label htmlFor={inputId} className="text-sm text-slate-600">
+    <label htmlFor={inputId} className={labelClassName ?? 'text-sm text-slate-600'}>
       {label}
       <span className="relative mt-2 block">
         <input
@@ -73,14 +79,17 @@ export function PasswordInput({
           required={required}
           value={value}
           onChange={onChange}
-          className={`${authUi.input} mt-0 pr-12`}
+          className={inputClassName ?? `${authUi.input} mt-0 pr-12`}
         />
         <button
           type="button"
           onClick={() => setVisible((current) => !current)}
           aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
           aria-pressed={visible}
-          className="absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center rounded-r-2xl text-slate-400 transition hover:text-slate-600 focus:outline-none"
+          className={
+            buttonClassName ??
+            'absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center rounded-r-2xl text-slate-400 transition hover:text-slate-600 focus:outline-none'
+          }
         >
           <EyeIcon hidden={visible} />
         </button>

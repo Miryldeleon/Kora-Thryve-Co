@@ -1,6 +1,4 @@
-import Link from 'next/link'
-import { AuthShell, authUi } from '@/components/auth/auth-shell'
-import { RoleLoginForm } from '@/components/auth/role-login-form'
+import { RoleLoginPageShell } from '@/components/auth/role-login-page-shell'
 
 type TeacherLoginPageProps = {
   searchParams: Promise<{
@@ -9,26 +7,19 @@ type TeacherLoginPageProps = {
   }>
 }
 
-export default async function TeacherLoginPage({
-  searchParams,
-}: TeacherLoginPageProps) {
+export default async function TeacherLoginPage({ searchParams }: TeacherLoginPageProps) {
   const { error, next } = await searchParams
 
   return (
-    <AuthShell
-      title="Teacher Login"
-      subtitle="Sign in to manage sessions, availability, and learning materials."
-      footer={
-        <p className="text-sm text-slate-600">
-          Need an account?{' '}
-          <Link href="/signup/teacher" className={authUi.secondaryLink}>
-            Teacher signup
-          </Link>
-        </p>
-      }
-    >
-      {error && <p className={authUi.alertError}>{error}</p>}
-      <RoleLoginForm role="teacher" next={next} />
-    </AuthShell>
+    <RoleLoginPageShell
+      role="teacher"
+      error={error}
+      next={next}
+      heading="Welcome back, Teacher"
+      subtitle="Sign in to manage your teaching workspace."
+      rightHeadline="Guide Learners with Clarity."
+      rightParagraph="Manage your classes, sessions, learners, and teaching materials in one organized space."
+      signupHref="/signup/teacher"
+    />
   )
 }

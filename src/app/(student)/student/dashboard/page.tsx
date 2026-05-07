@@ -1,7 +1,7 @@
 import { formatDateTimeRange } from '@/lib/booking/format'
 import { requireApprovedStudent } from '@/lib/auth/student'
 import { brandUi } from '@/lib/ui/branding'
-import { formatIsoCalendarDate, getTodayIsoDateForTimezone } from '@/lib/group-classes/date'
+import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import Link from 'next/link'
 
 type StudentUpcomingBookingRow = {
@@ -11,23 +11,15 @@ type StudentUpcomingBookingRow = {
   ends_at: string
 }
 
-type StudentGroupParticipantRow = {
-  session_id: string
-}
-
-type StudentGroupSessionRow = {
-  id: string
+type StudentGroupClassRpcRow = {
   template_id: string
-  session_date: string
-  start_time_local: string
-  end_time_local: string
-  status: 'scheduled' | 'completed' | 'cancelled' | string
-}
-
-type GroupTemplateRow = {
-  id: string
-  title: string
-  timezone: string | null
+  template_title: string
+  template_timezone: string | null
+  session_id: string | null
+  session_date: string | null
+  start_time_local: string | null
+  end_time_local: string | null
+  status: string | null
 }
 
 type StudentUpcomingSession =
@@ -45,7 +37,7 @@ type StudentUpcomingSession =
       title: string
       dateTimeLabel: string
       sortKey: string
-      href: null
+      href: string
     }
 
 function sessionTypeBadgeClass(sessionType: StudentUpcomingSession['sessionType']) {
@@ -58,6 +50,53 @@ type StudentRecommendedModule = {
   title: string
   teacher_name: string | null
   created_at: string
+}
+
+function logDashboardQueryError(label: string, error: { message?: string } | null | undefined) {
+  if (process.env.NODE_ENV === 'development' && error) {
+    console.error(`[StudentDashboard] ${label}:`, error.message ?? error)
+  }
+}
+
+function normalizeLocalTime(value: string) {
+  const [hour = '0', minute = '0', second = '0'] = value.split(':')
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`
+}
+
+function getCurrentDateTimeParts(timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date())
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '00'
+
+  return {
+    date: `${getPart('year')}-${getPart('month')}-${getPart('day')}`,
+    time: `${getPart('hour')}:${getPart('minute')}:${getPart('second')}`,
+  }
+}
+
+function isCurrentOrFutureGroupSession({
+  sessionDate,
+  endTimeLocal,
+  timezone,
+}: {
+  sessionDate: string
+  endTimeLocal: string
+  timezone: string
+}) {
+  const now = getCurrentDateTimeParts(timezone)
+  if (sessionDate > now.date) return true
+  if (sessionDate < now.date) return false
+  return normalizeLocalTime(endTimeLocal) >= now.time
 }
 
 export default async function StudentDashboardPage() {
@@ -73,7 +112,7 @@ export default async function StudentDashboardPage() {
     .limit(3)
 
   if (error) {
-    throw new Error(error.message)
+    logDashboardQueryError('Upcoming 1-on-1 booking query failed', error)
   }
 
   const { data: recommendedData, error: recommendedError } = await supabase
@@ -86,7 +125,7 @@ export default async function StudentDashboardPage() {
     throw new Error(recommendedError.message)
   }
 
-  const bookingRows = (data ?? []) as StudentUpcomingBookingRow[]
+  const bookingRows = (error ? [] : data ?? []) as StudentUpcomingBookingRow[]
   const normalizedOneOnOneSessions: StudentUpcomingSession[] = bookingRows.map((booking) => ({
     id: booking.id,
     sessionType: 'one_on_one',
@@ -96,69 +135,49 @@ export default async function StudentDashboardPage() {
     href: `/session/${booking.id}`,
   }))
 
-  const { data: groupParticipantData, error: groupParticipantError } = await supabase
-    .from('group_class_session_participants')
-    .select('session_id')
-    .eq('student_profile_id', user.id)
-    .eq('is_active', true)
-
-  if (groupParticipantError) {
-    throw new Error(groupParticipantError.message)
-  }
-
-  const groupSessionIds = Array.from(
-    new Set(((groupParticipantData ?? []) as StudentGroupParticipantRow[]).map((row) => row.session_id))
+  const { data: groupClassData, error: groupClassError } = await supabase.rpc(
+    'get_student_classes_page_group_sessions'
   )
 
-  let groupSessionRows: StudentGroupSessionRow[] = []
-  if (groupSessionIds.length > 0) {
-    const { data: groupSessionData, error: groupSessionError } = await supabase
-      .from('group_class_sessions')
-      .select('id, template_id, session_date, start_time_local, end_time_local, status')
-      .eq('is_active', true)
-      .eq('status', 'scheduled')
-      .in('id', groupSessionIds)
-      .order('session_date', { ascending: true })
-      .order('start_time_local', { ascending: true })
-
-    if (groupSessionError) {
-      throw new Error(groupSessionError.message)
-    }
-
-    groupSessionRows = (groupSessionData ?? []) as StudentGroupSessionRow[]
+  if (groupClassError) {
+    logDashboardQueryError('Upcoming group class session query failed', groupClassError)
   }
 
-  const templateIds = Array.from(new Set(groupSessionRows.map((row) => row.template_id)))
-  let templateById = new Map<string, GroupTemplateRow>()
-  if (templateIds.length > 0) {
-    const { data: templateData, error: templateError } = await supabase
-      .from('group_class_templates')
-      .select('id, title, timezone')
-      .in('id', templateIds)
-
-    if (templateError) {
-      throw new Error(templateError.message)
-    }
-
-    templateById = new Map(
-      ((templateData ?? []) as GroupTemplateRow[]).map((template) => [template.id, template])
+  const groupClassRows = (groupClassError ? [] : groupClassData ?? []) as StudentGroupClassRpcRow[]
+  const normalizedGroupSessions: StudentUpcomingSession[] = groupClassRows
+    .filter(
+      (
+        row
+      ): row is StudentGroupClassRpcRow & {
+        session_id: string
+        session_date: string
+        start_time_local: string
+        end_time_local: string
+        status: string
+      } =>
+        row.session_id !== null &&
+        row.session_date !== null &&
+        row.start_time_local !== null &&
+        row.end_time_local !== null &&
+        row.status !== null
     )
-  }
-
-  const normalizedGroupSessions: StudentUpcomingSession[] = groupSessionRows
-    .filter((session) => {
-      const timezone = templateById.get(session.template_id)?.timezone || 'UTC'
-      return session.session_date >= getTodayIsoDateForTimezone(timezone)
-    })
+    .filter((session) => session.status.trim().toLowerCase() === 'scheduled')
+    .filter((session) =>
+      isCurrentOrFutureGroupSession({
+        sessionDate: session.session_date,
+        endTimeLocal: session.end_time_local,
+        timezone: session.template_timezone || 'UTC',
+      })
+    )
     .map((session) => ({
-      id: session.id,
+      id: session.session_id,
       sessionType: 'group',
-      title: templateById.get(session.template_id)?.title || 'Group Session',
+      title: session.template_title || 'Group Session',
       dateTimeLabel: `${formatIsoCalendarDate(session.session_date, {
         dateStyle: 'medium',
       })} | ${session.start_time_local} - ${session.end_time_local}`,
-      sortKey: `${session.session_date}T${session.start_time_local}`,
-      href: null,
+      sortKey: `${session.session_date}T${normalizeLocalTime(session.start_time_local)}`,
+      href: `/group-session/${session.session_id}`,
     }))
 
   const upcomingSessions = [...normalizedOneOnOneSessions, ...normalizedGroupSessions].sort((a, b) =>
@@ -233,15 +252,9 @@ export default async function StudentDashboardPage() {
               <p className="mt-1 text-sm text-slate-600">
                 {nextSession.dateTimeLabel}
               </p>
-              {nextSession.href ? (
-                <a href={nextSession.href} className={`mt-4 ${brandUi.primaryButton}`}>
-                  Join Session
-                </a>
-              ) : (
-                <p className={`mt-4 ${brandUi.mutedCard}`}>
-                  Group live room access will be available in the next phase.
-                </p>
-              )}
+              <a href={nextSession.href} className={`mt-4 ${brandUi.primaryButton}`}>
+                Join Session
+              </a>
             </>
           )}
         </article>
