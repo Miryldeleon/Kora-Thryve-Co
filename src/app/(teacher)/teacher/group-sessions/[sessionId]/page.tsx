@@ -12,7 +12,6 @@ type TeacherGroupSessionDetailPageProps = {
 type GroupSession = {
   id: string
   template_id: string
-  teacher_id: string
   session_date: string
   start_time_local: string
   end_time_local: string
@@ -22,7 +21,6 @@ type GroupSession = {
 
 type GroupClassTemplate = {
   id: string
-  teacher_id: string
   title: string
   description: string | null
 }
@@ -75,12 +73,12 @@ export default async function TeacherGroupSessionDetailPage({
   params,
 }: TeacherGroupSessionDetailPageProps) {
   const { sessionId } = await params
-  const { supabase, user } = await requireApprovedTeacher()
+  const { supabase } = await requireApprovedTeacher()
 
   const { data: sessionData, error: sessionError } = await supabase
     .from('group_class_sessions')
     .select(
-      'id, template_id, teacher_id, session_date, start_time_local, end_time_local, status, meeting_room_name'
+      'id, template_id, session_date, start_time_local, end_time_local, status, meeting_room_name'
     )
     .eq('id', sessionId)
     .eq('is_active', true)
@@ -93,7 +91,7 @@ export default async function TeacherGroupSessionDetailPage({
   const session = sessionData as GroupSession
   const { data: templateData, error: templateError } = await supabase
     .from('group_class_templates')
-    .select('id, teacher_id, title, description')
+    .select('id, title, description')
     .eq('id', session.template_id)
     .eq('is_active', true)
     .maybeSingle()
@@ -103,10 +101,6 @@ export default async function TeacherGroupSessionDetailPage({
   }
 
   const template = templateData as GroupClassTemplate
-  if (template.teacher_id !== user.id) {
-    return <UnauthorizedState />
-  }
-
   const { data: participantData, error: participantError } = await supabase
     .from('group_class_session_participants')
     .select('id, student_profile_id')

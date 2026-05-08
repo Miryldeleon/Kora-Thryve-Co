@@ -151,7 +151,7 @@ export default async function SessionRoomPage({
     return <UnauthorizedState />
   }
 
-  const backHref = user.id === booking.teacher_id ? '/teacher/bookings' : '/student/booking'
+  const backHref = user.id === booking.teacher_id ? '/teacher/classes?type=one_on_one' : '/student/classes?type=one_on_one'
   const isTeacher = user.id === booking.teacher_id
 
   if (booking.status === 'cancelled') {

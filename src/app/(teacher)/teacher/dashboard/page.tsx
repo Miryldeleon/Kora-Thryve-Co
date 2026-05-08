@@ -75,8 +75,8 @@ export default async function TeacherDashboardPage() {
         <Link href="/teacher/modules" className={brandUi.secondaryButton}>
           Manage Modules
         </Link>
-        <Link href="/teacher/bookings" className={brandUi.secondaryButton}>
-          Open Bookings
+        <Link href="/teacher/classes?type=one_on_one" className={brandUi.secondaryButton}>
+          Open 1-on-1 Sessions
         </Link>
         <Link href="/teacher/availability" className={brandUi.secondaryButton}>
           Update Availability
@@ -155,8 +155,8 @@ export default async function TeacherDashboardPage() {
           <p className="mt-2 text-sm text-slate-600">
             Review confirmed, completed, and cancelled sessions in one place.
           </p>
-          <Link href="/teacher/bookings" className={`mt-4 ${brandUi.primaryButton}`}>
-            View Bookings
+          <Link href="/teacher/classes?type=one_on_one" className={`mt-4 ${brandUi.primaryButton}`}>
+            View 1-on-1 Sessions
           </Link>
         </article>
       </section>

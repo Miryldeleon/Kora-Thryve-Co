@@ -16,8 +16,8 @@ function toFeedbackUrl(
 async function updateBookingStatus(formData: FormData, nextStatus: 'completed' | 'cancelled') {
   const { supabase, user } = await requireApprovedTeacher()
   const bookingId = String(formData.get('booking_id') ?? '').trim()
-  const returnToRaw = String(formData.get('return_to') ?? '/teacher/bookings').trim()
-  const returnTo = returnToRaw.startsWith('/teacher/') ? returnToRaw : '/teacher/bookings'
+  const returnToRaw = String(formData.get('return_to') ?? '/teacher/classes?type=one_on_one').trim()
+  const returnTo = returnToRaw.startsWith('/teacher/') ? returnToRaw : '/teacher/classes?type=one_on_one'
 
   if (!bookingId) {
     redirect(toFeedbackUrl(returnTo, 'error', 'Booking id is required'))
@@ -51,10 +51,12 @@ async function updateBookingStatus(formData: FormData, nextStatus: 'completed' |
   }
 
   revalidatePath('/teacher/bookings')
+  revalidatePath('/teacher/classes')
   revalidatePath('/teacher/sessions')
   revalidatePath('/teacher/availability')
   revalidatePath('/teacher/dashboard')
   revalidatePath('/student/booking')
+  revalidatePath('/student/classes')
   revalidatePath('/student/sessions')
   revalidatePath('/student/dashboard')
   revalidatePath(`/session/${bookingId}`)

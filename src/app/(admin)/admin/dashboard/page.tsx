@@ -71,7 +71,7 @@ export default async function AdminDashboardPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Group Classes</p>
             <p className="mt-3 text-lg font-medium">Create recurring class templates</p>
             <p className="mt-2 text-sm text-slate-600">
-              Assign teachers, define recurrence rules, and enroll students.
+              Define recurrence rules and enroll students.
             </p>
             <a
               href="/admin/group-classes"

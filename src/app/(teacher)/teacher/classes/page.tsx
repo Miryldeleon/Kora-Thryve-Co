@@ -2,11 +2,10 @@ import Link from 'next/link'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
+import { cancelBooking, markBookingCompleted } from '../bookings/actions'
 
 type TeacherClassesPageProps = {
-  searchParams: Promise<{
-    type?: string
-  }>
+  searchParams: Promise<Record<string, string | undefined>>
 }
 
 type GroupSessionRow = {
@@ -42,8 +41,6 @@ type BookingRow = {
   status: string
 }
 
-type FilterType = 'all' | 'group' | 'one_on_one'
-
 type GroupSessionListItem = {
   id: string
   dateLabel: string
@@ -76,21 +73,6 @@ type OneOnOneCard = {
   sortValue: number
 }
 
-type CombinedCard =
-  | { kind: 'group'; sortValue: number; payload: GroupClassCard }
-  | { kind: 'one_on_one'; sortValue: number; payload: OneOnOneCard }
-
-const FILTERS: Array<{ id: FilterType; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'group', label: 'Group' },
-  { id: 'one_on_one', label: '1-on-1' },
-]
-
-function toFilterType(value: string | undefined): FilterType {
-  if (value === 'group' || value === 'one_on_one') return value
-  return 'all'
-}
-
 function classTypeBadgeClass(type: 'group' | 'one_on_one') {
   if (type === 'group') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
   return 'border-amber-200 bg-amber-50 text-amber-700'
@@ -103,6 +85,17 @@ function classStatusBadgeClass(status: string) {
   if (status === 'completed') return 'border-sky-200 bg-sky-50 text-sky-700'
   if (status === 'cancelled') return 'border-rose-200 bg-rose-50 text-rose-700'
   return 'border-slate-200 bg-slate-100 text-slate-700'
+}
+
+function getOneOnOneActionLabel(status: string) {
+  const normalized = status.trim().toLowerCase()
+  if (normalized === 'confirmed') return 'Join Session'
+  if (normalized === 'completed') return 'View Session'
+  return null
+}
+
+function isConfirmedStatus(status: string) {
+  return status.trim().toLowerCase() === 'confirmed'
 }
 
 function formatGroupDate(sessionDate: string) {
@@ -133,8 +126,7 @@ function toLocalSessionSortValue(sessionDate: string, startTimeLocal: string) {
 
 export default async function TeacherClassesPage({ searchParams }: TeacherClassesPageProps) {
   const { supabase, user } = await requireApprovedTeacher()
-  const { type } = await searchParams
-  const activeFilter = toFilterType(type)
+  await searchParams
   const nowIso = new Date().toISOString()
 
   const { data: groupClassData, error: groupClassError } = await supabase.rpc(
@@ -250,21 +242,6 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
     sortValue: Date.parse(booking.starts_at),
   }))
 
-  const combinedCards: CombinedCard[] = [
-    ...groupCards.map((card) => ({ kind: 'group' as const, sortValue: card.sortValue, payload: card })),
-    ...oneOnOneCards.map((card) => ({
-      kind: 'one_on_one' as const,
-      sortValue: card.sortValue,
-      payload: card,
-    })),
-  ]
-    .filter((item) => {
-      if (activeFilter === 'all') return true
-      if (activeFilter === 'group') return item.kind === 'group'
-      return item.kind === 'one_on_one'
-    })
-    .sort((a, b) => a.sortValue - b.sortValue)
-
   return (
     <main className={brandUi.page}>
       <div className={brandUi.container}>
@@ -272,76 +249,74 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
           <p className={brandUi.eyebrow}>Kora Thryve</p>
           <h1 className={brandUi.title}>Classes</h1>
           <p className={brandUi.subtitle}>
-            Your unified upcoming teaching schedule across group classes and 1-on-1 sessions.
+            Your unified teaching schedule across group classes and 1-on-1 sessions.
           </p>
+          <Link href="/teacher/sessions" className={`mt-4 ${brandUi.secondaryButton}`}>
+            View Session History
+          </Link>
         </header>
 
         <section className={brandUi.section}>
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-            {FILTERS.map((filter) => (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className={brandUi.sectionTitle}>Group Classes</h2>
+              <p className="mt-1 text-sm text-slate-600">Recurring classes available to approved teachers.</p>
+            </div>
+            <span className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-indigo-700">
+              Group
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {groupCards.length === 0 && <p className={brandUi.mutedCard}>No group classes available yet.</p>}
+            {groupCards.map((group) => (
               <Link
-                key={filter.id}
-                href={filter.id === 'all' ? '/teacher/classes' : `/teacher/classes?type=${filter.id}`}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-                  activeFilter === filter.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-                }`}
+                key={group.templateId}
+                href={`/teacher/classes/${group.templateId}`}
+                className={`${brandUi.card} block transition hover:-translate-y-0.5 hover:shadow-md`}
               >
-                {filter.label}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-indigo-700">↻</span>
+                      <p className="text-base font-semibold text-slate-900">{group.className}</p>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Next: {group.nextSessionDateLabel}
+                      {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {group.upcomingSessionCount} upcoming session
+                      {group.upcomingSessionCount === 1 ? '' : 's'} | Participants (next): {group.nextParticipantCount}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass('group')}`}>
+                      Group
+                    </span>
+                    <span className="text-sm font-medium text-[#8b7758]">View Class</span>
+                  </div>
+                </div>
               </Link>
             ))}
           </div>
+        </section>
 
+        <section className={brandUi.section}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className={brandUi.sectionTitle}>Upcoming 1-on-1 Sessions</h2>
+              <p className="mt-1 text-sm text-slate-600">Confirmed sessions booked with your students.</p>
+            </div>
+            <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-amber-700">
+              1-on-1
+            </span>
+          </div>
           <div className="mt-4 space-y-3">
-            {combinedCards.length === 0 && (
-              <p className={brandUi.mutedCard}>
-                No upcoming classes yet. Your future group sessions and 1-on-1 bookings will appear
-                here.
-              </p>
-            )}
-
-            {combinedCards.map((card) => {
-              if (card.kind === 'group') {
-                const group = card.payload
-                return (
-                  <Link
-                    key={`group-${group.templateId}`}
-                    href={`/teacher/classes/${group.templateId}`}
-                    className={`${brandUi.card} block transition hover:-translate-y-0.5 hover:shadow-md`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-indigo-700">↻</span>
-                          <p className="text-base font-semibold text-slate-900">{group.className}</p>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-600">
-                          Next: {group.nextSessionDateLabel}
-                          {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {group.upcomingSessionCount} upcoming session
-                          {group.upcomingSessionCount === 1 ? '' : 's'} | Participants (next):{' '}
-                          {group.nextParticipantCount}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass(
-                            'group'
-                          )}`}
-                        >
-                          Group
-                        </span>
-                        <span className="text-sm font-medium text-[#8b7758]">View Class</span>
-                      </div>
-                    </div>
-                  </Link>
-                )
-              }
-
-              const oneOnOne = card.payload
+            {oneOnOneCards.length === 0 && <p className={brandUi.mutedCard}>No upcoming 1-on-1 sessions.</p>}
+            {oneOnOneCards.map((oneOnOne) => {
+              const actionLabel = getOneOnOneActionLabel(oneOnOne.status)
               return (
-                <article key={`one-${oneOnOne.id}`} className={brandUi.card}>
+                <article key={oneOnOne.id} className={brandUi.card}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-base font-semibold text-slate-900">{oneOnOne.title}</p>
@@ -351,26 +326,41 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass(
-                          'one_on_one'
-                        )}`}
-                      >
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classTypeBadgeClass('one_on_one')}`}>
                         1-on-1
                       </span>
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classStatusBadgeClass(
-                          oneOnOne.status
-                        )}`}
-                      >
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${classStatusBadgeClass(oneOnOne.status)}`}>
                         {oneOnOne.status}
                       </span>
                     </div>
                   </div>
-
-                  <Link href={oneOnOne.href} className={`mt-4 ${brandUi.primaryButton}`}>
-                    Open Session
-                  </Link>
+                  {(actionLabel || isConfirmedStatus(oneOnOne.status)) && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {actionLabel && (
+                        <Link href={oneOnOne.href} className={brandUi.primaryButton}>
+                          {actionLabel}
+                        </Link>
+                      )}
+                      {isConfirmedStatus(oneOnOne.status) && (
+                        <>
+                          <form action={markBookingCompleted}>
+                            <input type="hidden" name="booking_id" value={oneOnOne.id} />
+                            <input type="hidden" name="return_to" value="/teacher/classes" />
+                            <button type="submit" className={brandUi.infoButton}>
+                              Mark Completed
+                            </button>
+                          </form>
+                          <form action={cancelBooking}>
+                            <input type="hidden" name="booking_id" value={oneOnOne.id} />
+                            <input type="hidden" name="return_to" value="/teacher/classes" />
+                            <button type="submit" className={brandUi.dangerButton}>
+                              Cancel Booking
+                            </button>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </article>
               )
             })}

@@ -15,7 +15,6 @@ type StudentGroupClassRpcRow = {
   template_title: string
   template_description: string | null
   template_timezone: string
-  teacher_name: string
   schedule_summary: string
   session_id: string | null
   session_date: string | null
@@ -131,7 +130,6 @@ export default async function StudentClassDetailPage({ params }: StudentClassDet
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Schedule</p>
               <p className="mt-2 text-sm font-medium text-slate-900">{classInfo.schedule_summary}</p>
               <p className="mt-1 text-xs text-slate-600">Timezone: {classInfo.template_timezone}</p>
-              <p className="mt-1 text-xs text-slate-600">Teacher: {classInfo.teacher_name}</p>
             </section>
           </div>
         </article>

@@ -32,8 +32,6 @@ type AttendanceSheetRow = {
   template_title: string
   template_description: string | null
   template_timezone: string
-  teacher_id: string
-  teacher_name: string
   schedule_summary: string
   session_id: string
   session_date: string
@@ -209,7 +207,6 @@ export default async function TeacherAttendanceDetailPage({
             <section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Summary</p>
               <div className="mt-2 space-y-1 text-sm text-slate-700">
-                <p>Teacher: {rows[0]?.teacher_name ?? 'Teacher'}</p>
                 <p>Schedule: {classInfo.schedule_summary}</p>
                 <p>Students: {classInfo.active_student_count}</p>
                 <p>Grace period: {GROUP_ATTENDANCE_GRACE_MINUTES} minutes</p>

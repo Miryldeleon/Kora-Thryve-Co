@@ -67,7 +67,9 @@ export async function createBooking(formData: FormData) {
   }
 
   revalidatePath('/student/booking')
+  revalidatePath('/student/classes')
   revalidatePath('/teacher/bookings')
+  revalidatePath('/teacher/classes')
   revalidatePath('/teacher/availability')
   redirect(toBookingUrl('success', 'Booking confirmed', teacherFilter))
 }

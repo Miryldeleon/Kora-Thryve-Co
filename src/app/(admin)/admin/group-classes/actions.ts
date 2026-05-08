@@ -51,7 +51,6 @@ export async function createRecurringClass(formData: FormData) {
   const returnPath = resolveGroupClassesReturnPath(formData)
 
   const title = String(formData.get('title') ?? '').trim()
-  const teacherId = String(formData.get('teacher_id') ?? '').trim()
   const descriptionRaw = String(formData.get('description') ?? '').trim()
   const weekday = parseInteger(formData.get('weekday'))
   const selectedWeeks = Array.from(
@@ -79,10 +78,6 @@ export async function createRecurringClass(formData: FormData) {
 
   if (title.length === 0) {
     redirect(toResultUrl(returnPath, 'error', 'Class name is required'))
-  }
-
-  if (teacherId.length === 0) {
-    redirect(toResultUrl(returnPath, 'error', 'Assigned teacher is required'))
   }
 
   if (weekday === null || weekday < 0 || weekday > 6) {
@@ -118,7 +113,6 @@ export async function createRecurringClass(formData: FormData) {
     .from('group_class_templates')
     .insert({
       title,
-      teacher_id: teacherId,
       description: descriptionRaw || null,
       duration_minutes: durationMinutes,
       timezone,
@@ -165,6 +159,8 @@ export async function createRecurringClass(formData: FormData) {
       is_active: true,
       created_at: createdAt,
       assigned_by_admin: user.id,
+      enrollment_source: 'admin_manual',
+      selected_during_signup: false,
     }))
 
     const { error: enrollmentError } = await supabase
@@ -317,6 +313,101 @@ export async function updateRecurringClassDetails(formData: FormData) {
   revalidatePath('/teacher/classes')
   revalidatePath('/student/classes')
   redirect(toResultUrl(returnPath, 'success', 'Recurring class details updated'))
+}
+
+export async function enrollStudent(formData: FormData) {
+  const { supabase, user } = await requireAdminAccess()
+  const returnPath = resolveGroupClassesReturnPath(formData)
+  const classId = parseId(formData.get('class_id'))
+  const studentId = parseId(formData.get('student_id'))
+
+  if (classId.length === 0) {
+    redirect(toResultUrl(returnPath, 'error', 'Class id is required'))
+  }
+
+  if (studentId.length === 0 || !isUuid(studentId)) {
+    redirect(toResultUrl(returnPath, 'error', 'Select a student to enroll'))
+  }
+
+  const { data: templateRow, error: templateError } = await supabase
+    .from('group_class_templates')
+    .select('id')
+    .eq('id', classId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (templateError || !templateRow) {
+    redirect(toResultUrl(returnPath, 'error', templateError?.message ?? 'Active recurring class not found'))
+  }
+
+  const { data: studentRow, error: studentError } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('id', studentId)
+    .eq('role', 'student')
+    .eq('approval_status', 'approved')
+    .maybeSingle()
+
+  if (studentError || !studentRow) {
+    redirect(toResultUrl(returnPath, 'error', studentError?.message ?? 'Approved student not found'))
+  }
+
+  const { data: existingEnrollment, error: existingEnrollmentError } = await supabase
+    .from('group_class_enrollments')
+    .select('id')
+    .eq('template_id', classId)
+    .eq('student_id', studentId)
+    .maybeSingle()
+
+  if (existingEnrollmentError) {
+    redirect(toResultUrl(returnPath, 'error', existingEnrollmentError.message))
+  }
+
+  const enrollmentMutation = existingEnrollment?.id
+    ? supabase
+        .from('group_class_enrollments')
+        .update({
+          status: 'active',
+          is_active: true,
+          assigned_by_admin: user.id,
+          enrollment_source: 'admin_manual',
+          selected_during_signup: false,
+        })
+        .eq('id', existingEnrollment.id)
+    : supabase
+        .from('group_class_enrollments')
+        .insert({
+          id: randomUUID(),
+          template_id: classId,
+          student_id: studentId,
+          status: 'active',
+          is_active: true,
+          assigned_by_admin: user.id,
+          enrollment_source: 'admin_manual',
+          selected_during_signup: false,
+        })
+
+  const { error: enrollmentError } = await enrollmentMutation
+
+  if (enrollmentError) {
+    redirect(toResultUrl(returnPath, 'error', enrollmentError.message))
+  }
+
+  try {
+    await generateUpcomingGroupClassSessions(supabase, {
+      daysAhead: 60,
+      templateIds: [classId],
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown generator error.'
+    redirect(toResultUrl(returnPath, 'error', 'Student enrolled, but session sync failed: ' + detail))
+  }
+
+  revalidatePath('/admin/group-classes')
+  revalidatePath('/teacher/classes')
+  revalidatePath('/teacher/group-sessions')
+  revalidatePath('/student/classes')
+  redirect(toResultUrl(returnPath, 'success', 'Student enrolled'))
 }
 
 export async function unenrollStudent(formData: FormData) {

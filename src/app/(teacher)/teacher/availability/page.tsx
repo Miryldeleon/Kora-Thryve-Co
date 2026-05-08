@@ -2,6 +2,7 @@ import { formatDateTimeRange } from '@/lib/booking/format'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { brandUi } from '@/lib/ui/branding'
 import { createAvailabilitySlot, deleteAvailabilitySlot } from './actions'
+import Link from 'next/link'
 
 type TeacherAvailabilityPageProps = {
   searchParams: Promise<{
@@ -104,12 +105,12 @@ export default async function TeacherAvailabilityPage({
               Keep your bookings up to date and review class changes quickly.
             </p>
             <div className="mt-4 grid gap-2">
-              <a href="/teacher/bookings" className={brandUi.secondaryButton}>
-                Review Bookings
-              </a>
-              <a href="/teacher/modules" className={brandUi.secondaryButton}>
+              <Link href="/teacher/classes?type=one_on_one" className={brandUi.secondaryButton}>
+                Review Sessions
+              </Link>
+              <Link href="/teacher/modules" className={brandUi.secondaryButton}>
                 Update Modules
-              </a>
+              </Link>
             </div>
           </article>
         </div>

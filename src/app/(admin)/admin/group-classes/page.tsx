@@ -4,6 +4,7 @@ import { adminSignOut } from '../actions'
 import {
   createRecurringClass,
   deleteRecurringClass,
+  enrollStudent,
   unenrollStudent,
   updateRecurringClassDetails,
 } from './actions'
@@ -19,7 +20,6 @@ type GroupClassTemplate = {
   id: string
   title: string
   description: string | null
-  teacher_id: string
   duration_minutes: number
   timezone: string
   is_active: boolean
@@ -67,6 +67,7 @@ type ProfileOption = {
   id: string
   full_name: string | null
   email: string | null
+  approval_status?: string
 }
 
 const WEEKDAY_OPTIONS = [
@@ -114,7 +115,7 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
 
   const { data: classData, error: classError } = await supabase
     .from('group_class_templates')
-    .select('id, title, description, teacher_id, duration_minutes, timezone, is_active, created_at')
+    .select('id, title, description, duration_minutes, timezone, is_active, created_at')
     .eq('is_active', true)
     .order('created_at', { ascending: false })
 
@@ -144,22 +145,10 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
     throw new Error(enrollmentError.message)
   }
 
-  const { data: teacherData, error: teacherError } = await supabase
-    .from('profiles')
-    .select('id, full_name, email')
-    .eq('role', 'teacher')
-    .eq('approval_status', 'approved')
-    .order('full_name', { ascending: true })
-
-  if (teacherError) {
-    throw new Error(teacherError.message)
-  }
-
   const { data: studentData, error: studentError } = await supabase
     .from('profiles')
-    .select('id, full_name, email')
+    .select('id, full_name, email, approval_status')
     .eq('role', 'student')
-    .eq('approval_status', 'approved')
     .order('full_name', { ascending: true })
 
   if (studentError) {
@@ -182,8 +171,8 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
   const classes = (classData ?? []) as GroupClassTemplate[]
   const schedules = (scheduleData ?? []) as GroupClassRecurrenceRule[]
   const enrollments = (enrollmentData ?? []) as GroupClassEnrollment[]
-  const teachers = (teacherData ?? []) as ProfileOption[]
-  const students = (studentData ?? []) as ProfileOption[]
+  const allStudents = (studentData ?? []) as ProfileOption[]
+  const students = allStudents.filter((student) => student.approval_status === 'approved')
   const sessions = (sessionData ?? []) as GroupClassSession[]
 
   const sessionIds = sessions.map((session) => session.id)
@@ -203,8 +192,7 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
     participants = (participantData ?? []) as GroupClassSessionParticipant[]
   }
 
-  const teacherById = new Map(teachers.map((teacher) => [teacher.id, profileLabel(teacher)]))
-  const studentById = new Map(students.map((student) => [student.id, profileLabel(student)]))
+  const studentById = new Map(allStudents.map((student) => [student.id, profileLabel(student)]))
 
   const scheduleByClass = new Map<string, GroupClassRecurrenceRule[]>()
   for (const schedule of schedules) {
@@ -243,7 +231,7 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
             <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Kora Thryve</p>
             <h1 className="mt-2 text-3xl font-semibold">Recurring Classes</h1>
             <p className="mt-2 text-sm text-slate-600">
-              Create recurring classes, assign teachers, set schedules, and enroll students.
+              Create recurring classes, set schedules, and enroll students.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -290,7 +278,7 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
           <form action={createRecurringClass} className="mt-4 grid gap-3 md:grid-cols-2">
             <input type="hidden" name="return_to" value="/admin/group-classes" />
 
-            <label className="text-sm text-slate-600">
+            <label className="text-sm text-slate-600 md:col-span-2">
               Class Name
               <input
                 type="text"
@@ -299,22 +287,6 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                 placeholder="English Level 3-4"
               />
-            </label>
-
-            <label className="text-sm text-slate-600">
-              Assigned Teacher
-              <select
-                name="teacher_id"
-                required
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">Select teacher</option>
-                {teachers.map((teacher) => (
-                  <option key={teacher.id} value={teacher.id}>
-                    {profileLabel(teacher)}
-                  </option>
-                ))}
-              </select>
             </label>
 
             <label className="text-sm text-slate-600 md:col-span-2">
@@ -466,6 +438,8 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
 
                 const classEnrollments = enrollmentByClass.get(item.id) ?? []
                 const activeEnrollments = classEnrollments.filter((row) => row.status === 'active')
+                const activeStudentIds = new Set(activeEnrollments.map((row) => row.student_id))
+                const availableStudents = students.filter((student) => !activeStudentIds.has(student.id))
                 const classSessions = (sessionsByClass.get(item.id) ?? []).slice(0, 10)
 
                 return (
@@ -474,9 +448,6 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
                       <div>
                         <h3 className="text-xl font-semibold text-slate-900">{item.title}</h3>
                         <p className="mt-2 text-sm text-slate-600">
-                          Teacher: {teacherById.get(item.teacher_id) || item.teacher_id}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
                           Duration: {item.duration_minutes} min | Timezone: {item.timezone}
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
@@ -560,6 +531,32 @@ export default async function AdminGroupClassesPage({ searchParams }: AdminGroup
 
                       <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                         <h4 className="text-sm font-semibold text-slate-900">Enrolled Students</h4>
+                        <form action={enrollStudent} className="mt-3 flex flex-wrap gap-2">
+                          <input type="hidden" name="class_id" value={item.id} />
+                          <input type="hidden" name="return_to" value="/admin/group-classes" />
+                          <select
+                            name="student_id"
+                            required
+                            disabled={availableStudents.length === 0}
+                            className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                          >
+                            <option value="">
+                              {availableStudents.length === 0 ? 'No approved students available' : 'Select student'}
+                            </option>
+                            {availableStudents.map((student) => (
+                              <option key={student.id} value={student.id}>
+                                {profileLabel(student)}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="submit"
+                            disabled={availableStudents.length === 0}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Add Student
+                          </button>
+                        </form>
                         <div className="mt-2 space-y-2">
                           {classEnrollments.length === 0 && (
                             <p className="text-sm text-slate-600">No enrolled students yet.</p>

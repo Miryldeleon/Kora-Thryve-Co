@@ -11,6 +11,16 @@ type PendingProfile = {
   created_at: string
 }
 
+type PendingEnrollment = {
+  student_id: string
+  template_id: string
+}
+
+type ClassTitleRow = {
+  id: string
+  title: string
+}
+
 export default async function AdminApprovalsPage() {
   const { supabase } = await requireAdminAccess()
   const { data, error } = await supabase
@@ -24,6 +34,49 @@ export default async function AdminApprovalsPage() {
   }
 
   const pendingProfiles = (data ?? []) as PendingProfile[]
+  const pendingStudentIds = pendingProfiles
+    .filter((profile) => profile.role === 'student')
+    .map((profile) => profile.id)
+  const selectedClassesByProfile = new Map<string, string[]>()
+
+  if (pendingStudentIds.length > 0) {
+    const { data: enrollmentData, error: enrollmentError } = await supabase
+      .from('group_class_enrollments')
+      .select('student_id, template_id')
+      .eq('is_active', true)
+      .in('student_id', pendingStudentIds)
+
+    if (enrollmentError) {
+      throw new Error(enrollmentError.message)
+    }
+
+    const enrollments = (enrollmentData ?? []) as PendingEnrollment[]
+    const templateIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.template_id)))
+
+    if (templateIds.length > 0) {
+      const { data: classData, error: classError } = await supabase
+        .from('group_class_templates')
+        .select('id, title')
+        .in('id', templateIds)
+
+      if (classError) {
+        throw new Error(classError.message)
+      }
+
+      const titleByTemplateId = new Map(
+        ((classData ?? []) as ClassTitleRow[]).map((classRow) => [classRow.id, classRow.title])
+      )
+
+      for (const enrollment of enrollments) {
+        const title = titleByTemplateId.get(enrollment.template_id)
+        if (title) {
+          const current = selectedClassesByProfile.get(enrollment.student_id) ?? []
+          current.push(title)
+          selectedClassesByProfile.set(enrollment.student_id, current)
+        }
+      }
+    }
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900">
@@ -75,6 +128,7 @@ export default async function AdminApprovalsPage() {
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Role</th>
                   <th className="px-4 py-3 font-medium">Approval Status</th>
+                  <th className="px-4 py-3 font-medium">Selected Classes</th>
                   <th className="px-4 py-3 font-medium">Created At</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
@@ -82,7 +136,7 @@ export default async function AdminApprovalsPage() {
               <tbody>
                 {pendingProfiles.length === 0 && (
                   <tr>
-                    <td className="px-4 py-8 text-sm text-slate-600" colSpan={6}>
+                    <td className="px-4 py-8 text-sm text-slate-600" colSpan={7}>
                       No pending users right now.
                     </td>
                   </tr>
@@ -93,6 +147,21 @@ export default async function AdminApprovalsPage() {
                     <td className="px-4 py-4 text-sm text-slate-700">{profile.email}</td>
                     <td className="px-4 py-4 text-sm capitalize">{profile.role}</td>
                     <td className="px-4 py-4 text-sm capitalize">{profile.approval_status}</td>
+                    <td className="px-4 py-4 text-sm text-slate-700">
+                      {profile.role === 'student' ? (
+                        (selectedClassesByProfile.get(profile.id) ?? []).length > 0 ? (
+                          <ul className="space-y-1">
+                            {(selectedClassesByProfile.get(profile.id) ?? []).map((classTitle) => (
+                              <li key={classTitle}>{classTitle}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          '-'
+                        )
+                      ) : (
+                        '-'
+                      )}
+                    </td>
                     <td className="px-4 py-4 text-sm text-slate-600">
                       {new Date(profile.created_at).toLocaleString()}
                     </td>

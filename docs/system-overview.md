@@ -30,6 +30,7 @@ The system supports:
 - account signup and login
 - approval-based access
 - teacher and student dashboards
+- student class selection during signup
 - 1-on-1 bookings
 - recurring group classes
 - live session attendance
@@ -41,6 +42,7 @@ In simple words:
 - students can learn, book sessions, and join classes
 - teachers can manage availability, classes, sessions, notes, and modules
 - admins can approve users and manage shared content
+- admins create and manage group classes, while students only choose from existing active classes during signup
 
 ---
 
@@ -89,6 +91,7 @@ This area handles:
 - profile creation
 - approval status
 - role-based access
+- student selection of one or more existing active group classes during signup
 
 Main users:
 
@@ -113,9 +116,12 @@ This area handles:
 - recurring class templates
 - recurrence rules
 - student enrollments
+- signup-based student auto-enrollment into one or more classes
 - generated sessions
 - group attendance
 - group notes
+
+Admins remain the only users who can create, edit, schedule, activate, deactivate, or delete group classes. Group classes are not assigned to individual teachers; all approved teachers can see and access all active group classes. Students cannot create or modify class templates, recurrence rules, schedules, or class settings, and they can only access classes where they have active enrollment.
 
 ## 4. Learning modules library
 
@@ -298,6 +304,7 @@ Stores:
 Stores:
 
 - the main group class records
+- admin-created class setup without assigned-teacher ownership
 
 ### `group_class_recurrence_rules`
 
@@ -310,6 +317,7 @@ Stores:
 Stores:
 
 - which students belong to which class
+- whether an enrollment came from admin manual enrollment or student signup auto-enrollment, when the tracking columns are present
 
 ### `group_class_sessions`
 
@@ -371,7 +379,6 @@ erDiagram
   module_folders ||--o{ module_folders : nests
   module_folders ||--o{ modules : contains
 
-  profiles ||--o{ group_class_templates : teaches
   group_class_templates ||--o{ group_class_recurrence_rules : has
   group_class_templates ||--o{ group_class_enrollments : has
   group_class_templates ||--o{ group_class_sessions : generates
@@ -391,8 +398,9 @@ The system uses Supabase Auth.
 2. A row is created in `auth.users`
 3. Trigger `handle_new_user()` creates a row in `profiles`
 4. The profile starts as `pending`
-5. Admin approves or rejects the user
-6. The app redirects based on role and approval state
+5. Student signup also records each selected active group class in `group_class_enrollments`
+6. Admin approves or rejects the user
+7. The app redirects based on role and approval state
 
 ### Auth flow chart
 
@@ -403,8 +411,9 @@ flowchart TD
   C[handle_new_user trigger]
   D[profiles row created]
   E[Approval state = pending]
-  F[Admin approves or rejects]
-  G[User enters role dashboard or sees blocked page]
+  F[Student selected class enrollments created]
+  G[Admin approves or rejects]
+  H[User enters role dashboard or sees blocked page]
 
   A --> B
   B --> C
@@ -412,11 +421,26 @@ flowchart TD
   D --> E
   E --> F
   F --> G
+  G --> H
 ```
 
 ---
 
 ## Main Application Flows
+
+## Flow 0. Student signup class enrollment
+
+1. Admin creates an active group class.
+2. Student opens the signup page.
+3. Student selects one or more existing active classes.
+4. Student submits the signup form.
+5. Supabase creates the auth user and profile.
+6. The system creates one `group_class_enrollments` row for each selected class.
+7. Student remains pending approval.
+8. Admin approves the student.
+9. Approved student can view all enrolled classes from the student classes page.
+
+This signup path coexists with admin manual enrollment. Admins can still manually enroll students into classes and remove students from classes from the admin group classes page.
 
 ## Flow 1. Student books a 1-on-1 session
 
@@ -475,8 +499,11 @@ flowchart TD
 
 1. Admin creates a group class template
 2. Admin adds recurrence rules
-3. Admin enrolls students
-4. The class becomes visible to the assigned teacher and enrolled students
+3. Admin can manually enroll students
+4. Students can also be auto-enrolled into one or more existing active classes during signup
+5. The class becomes visible to all approved teachers and approved enrolled students
+
+Only admins can create or manage group class templates, schedules, and active/inactive state. Group classes no longer have assigned teachers; all approved teachers can see and access all active group classes.
 
 ## Flow 6. Group sessions are generated
 
@@ -485,6 +512,11 @@ flowchart TD
 3. It reads active enrollments
 4. It creates future session rows
 5. It creates session participant snapshot rows
+
+Enrollment rows can now come from two paths:
+
+1. admin manual enrollment
+2. student signup auto-enrollment, which can create multiple rows for multiple selected classes
 
 This logic is in:
 
@@ -660,7 +692,7 @@ The helper is here:
 ```mermaid
 flowchart TD
   A[User account]
-  B[Profile and approval]
+  B[Profile, class selection, and approval]
   C[Dashboard access]
   D[Learning content]
   E[1-on-1 sessions]
@@ -748,10 +780,11 @@ Kora Thryve is a role-based learning platform built with:
 Its main business flows are:
 
 1. create user and profile
-2. approve access
-3. manage modules and classes
-4. book or join sessions
-5. track attendance and notes
+2. auto-enroll signup students into their selected active classes
+3. approve access
+4. manage modules and classes
+5. book or join sessions
+6. track attendance and notes
 
 The system is organized around clear domains:
 

@@ -36,7 +36,7 @@ type GroupTemplateRow = {
 type GroupSessionRoomAccessRow = {
   session_id: string
   template_id: string
-  teacher_id: string
+  teacher_id: string | null
   session_date: string
   start_time_local: string
   end_time_local: string
@@ -291,7 +291,7 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
   const studentIds = participants.map((row) => row.student_profile_id)
   const profileIds = Array.from(
     new Set([access.teacher_id, ...studentIds, ...attendanceRows.map((row) => row.user_id)])
-  )
+  ).filter((profileId): profileId is string => Boolean(profileId))
   let profileById = new Map<string, ProfileRow>()
   if (profileIds.length > 0) {
     const { data: profileData, error: profileError } = await supabase
@@ -308,11 +308,13 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
 
   const participantByUserRole = new Map<string, ParticipantListItem>()
   const teacherAttendance = attendanceRows.find((row) => row.role === 'teacher')
-  participantByUserRole.set(`teacher:${access.teacher_id}`, {
-    userId: access.teacher_id,
-    role: 'teacher',
-    joinedAt: teacherAttendance?.joined_at ?? null,
-  })
+  if (access.teacher_id) {
+    participantByUserRole.set(`teacher:${access.teacher_id}`, {
+      userId: access.teacher_id,
+      role: 'teacher',
+      joinedAt: teacherAttendance?.joined_at ?? null,
+    })
+  }
 
   attendanceRows.forEach((row) => {
     participantByUserRole.set(`${row.role}:${row.user_id}`, {

@@ -38,13 +38,12 @@ function formatSessionTimeRange(start: string, end: string) {
 }
 
 export default async function TeacherGroupSessionsPage() {
-  const { supabase, user } = await requireApprovedTeacher()
+  const { supabase } = await requireApprovedTeacher()
 
   const { data: sessionData, error: sessionError } = await supabase
     .from('group_class_sessions')
     .select('id, template_id, session_date, start_time_local, end_time_local, status, meeting_room_name')
     .eq('is_active', true)
-    .eq('teacher_id', user.id)
     .eq('status', 'scheduled')
     .order('session_date', { ascending: true })
     .order('start_time_local', { ascending: true })

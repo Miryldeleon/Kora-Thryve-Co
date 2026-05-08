@@ -14,7 +14,7 @@ export async function saveSessionNotes(formData: FormData) {
   const notes = String(formData.get('notes') ?? '')
 
   if (!bookingId) {
-    redirect('/teacher/bookings')
+    redirect('/teacher/classes?type=one_on_one')
   }
 
   if (notes.length > 20000) {
@@ -37,7 +37,7 @@ export async function saveSessionNotes(formData: FormData) {
     .maybeSingle()
 
   if (bookingError || !booking) {
-    redirect('/teacher/bookings')
+    redirect('/teacher/classes?type=one_on_one')
   }
 
   if (booking.teacher_id !== user.id) {

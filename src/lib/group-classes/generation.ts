@@ -3,7 +3,6 @@ import { addDaysToIsoDate, getTodayIsoDateForTimezone } from './date'
 
 type GroupClassTemplateRow = {
   id: string
-  teacher_id: string
   timezone: string
 }
 
@@ -84,7 +83,7 @@ export async function generateUpcomingGroupClassSessions(
       : null
   let templateQuery = supabase
     .from('group_class_templates')
-    .select('id, teacher_id, timezone')
+    .select('id, timezone')
     .eq('is_active', true)
 
   if (filterTemplateIds) {
@@ -202,7 +201,6 @@ export async function generateUpcomingGroupClassSessions(
         sessionRows.push({
           template_id: template.id,
           recurrence_rule_id: rule.id,
-          teacher_id: template.teacher_id,
           session_date: sessionDate,
           start_time_local: rule.start_time_local,
           end_time_local: rule.end_time_local,
