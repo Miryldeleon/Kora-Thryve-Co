@@ -1,78 +1,41 @@
-import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  getProfileForCurrentUser,
+  updateProfileForCurrentUser,
+} from '@/lib/services/profile-service'
+import { jsonError, jsonOk } from '@/lib/request/responses'
+import { parseProfileUpdatePayload } from '@/lib/request/validation'
 
-type ProfileUpdatePayload = {
-  full_name?: string
-  age?: number | null
-  location?: string | null
-}
+async function requireRequestUser() {
+  const supabase = await createServerSupabaseClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-function normalizeAge(input: unknown) {
-  if (input === null || input === undefined || input === '') return null
-  const parsed = Number(input)
-  if (!Number.isFinite(parsed)) return NaN
-  return Math.floor(parsed)
+  if (!user) return { ok: false as const, response: jsonError('Unauthorized.', 401) }
+  return { ok: true as const, supabase, user }
 }
 
 export async function GET() {
-  const supabase = await createServerSupabaseClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const auth = await requireRequestUser()
+  if (!auth.ok) return auth.response
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-  }
+  const result = await getProfileForCurrentUser(auth.supabase, auth.user)
+  if (!result.ok) return jsonError(result.error, result.status)
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, role, approval_status, full_name, age, location, created_at')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (error || !profile) {
-    return NextResponse.json({ error: error?.message || 'Profile not found.' }, { status: 404 })
-  }
-
-  return NextResponse.json({
-    profile: {
-      ...profile,
-      email: user.email || '',
-    },
-  })
+  return jsonOk(result.data)
 }
 
 export async function PATCH(request: Request) {
-  const supabase = await createServerSupabaseClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const auth = await requireRequestUser()
+  if (!auth.ok) return auth.response
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-  }
+  const body = await request.json().catch(() => null)
+  const payload = parseProfileUpdatePayload(body)
+  if (!payload.ok) return jsonError(payload.error, 400)
 
-  const body = (await request.json()) as ProfileUpdatePayload
-  const fullName = String(body.full_name ?? '').trim()
-  const location = String(body.location ?? '').trim()
-  const age = normalizeAge(body.age)
+  const result = await updateProfileForCurrentUser(auth.supabase, auth.user, payload.value)
+  if (!result.ok) return jsonError(result.error, result.status)
 
-  if (age !== null && (!Number.isFinite(age) || age < 1 || age > 120)) {
-    return NextResponse.json({ error: 'Age must be between 1 and 120.' }, { status: 400 })
-  }
-
-  const { error } = await supabase
-    .from('profiles')
-    .update({
-      full_name: fullName || null,
-      age,
-      location: location || null,
-    })
-    .eq('id', user.id)
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
-  }
-
-  return NextResponse.json({ ok: true })
+  return jsonOk()
 }

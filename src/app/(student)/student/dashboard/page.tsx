@@ -2,25 +2,9 @@ import { formatDateTimeRange } from '@/lib/booking/format'
 import { requireApprovedStudent } from '@/lib/auth/student'
 import { brandUi } from '@/lib/ui/branding'
 import { formatIsoCalendarDate } from '@/lib/group-classes/date'
+import { getStudentDashboardReads } from '@/lib/services/booking-service'
 import Link from 'next/link'
-
-type StudentUpcomingBookingRow = {
-  id: string
-  teacher_name: string | null
-  starts_at: string
-  ends_at: string
-}
-
-type StudentGroupClassRpcRow = {
-  template_id: string
-  template_title: string
-  template_timezone: string | null
-  session_id: string | null
-  session_date: string | null
-  start_time_local: string | null
-  end_time_local: string | null
-  status: string | null
-}
+import type { StudentClassesPageGroupSessionRow } from '@/lib/data/group-class-queries'
 
 type StudentUpcomingSession =
   | {
@@ -101,31 +85,22 @@ function isCurrentOrFutureGroupSession({
 
 export default async function StudentDashboardPage() {
   const { supabase, user } = await requireApprovedStudent()
+  const reads = await getStudentDashboardReads(supabase, {
+    studentId: user.id,
+    nowIso: new Date().toISOString(),
+  })
 
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('id, teacher_name, starts_at, ends_at')
-    .eq('student_id', user.id)
-    .eq('status', 'confirmed')
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
-    .limit(3)
-
-  if (error) {
-    logDashboardQueryError('Upcoming 1-on-1 booking query failed', error)
+  if (reads.bookings.error) {
+    logDashboardQueryError('Upcoming 1-on-1 booking query failed', reads.bookings.error)
+  }
+  if (reads.modules.error) {
+    throw new Error(reads.modules.error.message)
+  }
+  if (reads.groupSessions.error) {
+    logDashboardQueryError('Upcoming group class session query failed', reads.groupSessions.error)
   }
 
-  const { data: recommendedData, error: recommendedError } = await supabase
-    .from('modules')
-    .select('id, title, teacher_name, created_at')
-    .order('created_at', { ascending: false })
-    .limit(3)
-
-  if (recommendedError) {
-    throw new Error(recommendedError.message)
-  }
-
-  const bookingRows = (error ? [] : data ?? []) as StudentUpcomingBookingRow[]
+  const bookingRows = reads.bookings.error ? [] : reads.bookings.bookings
   const normalizedOneOnOneSessions: StudentUpcomingSession[] = bookingRows.map((booking) => ({
     id: booking.id,
     sessionType: 'one_on_one',
@@ -135,20 +110,12 @@ export default async function StudentDashboardPage() {
     href: `/session/${booking.id}`,
   }))
 
-  const { data: groupClassData, error: groupClassError } = await supabase.rpc(
-    'get_student_classes_page_group_sessions'
-  )
-
-  if (groupClassError) {
-    logDashboardQueryError('Upcoming group class session query failed', groupClassError)
-  }
-
-  const groupClassRows = (groupClassError ? [] : groupClassData ?? []) as StudentGroupClassRpcRow[]
+  const groupClassRows = reads.groupSessions.error ? [] : reads.groupSessions.sessions
   const normalizedGroupSessions: StudentUpcomingSession[] = groupClassRows
     .filter(
       (
         row
-      ): row is StudentGroupClassRpcRow & {
+      ): row is StudentClassesPageGroupSessionRow & {
         session_id: string
         session_date: string
         start_time_local: string
@@ -183,7 +150,7 @@ export default async function StudentDashboardPage() {
   const upcomingSessions = [...normalizedOneOnOneSessions, ...normalizedGroupSessions].sort((a, b) =>
     a.sortKey.localeCompare(b.sortKey)
   )
-  const recommendedModules = (recommendedData ?? []) as StudentRecommendedModule[]
+  const recommendedModules = reads.modules.modules as StudentRecommendedModule[]
   const nextSession = upcomingSessions[0]
 
   return (

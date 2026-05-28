@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { requireApprovedStudent } from '@/lib/auth/student'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
+import { createModuleSignedUrls } from '@/lib/data/module-queries'
 
 type StudentFolderPageProps = {
   params: Promise<{
@@ -116,18 +116,10 @@ export default async function StudentFolderDetailPage({ params }: StudentFolderP
 
   const modules = (modulesData ?? []) as StudentModule[]
 
-  const modulesWithSignedUrls: StudentModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
+  const modulesWithSignedUrls = (await createModuleSignedUrls(
+    supabase,
+    modules
+  )) as StudentModuleWithUrl[]
 
   return (
     <div className="mx-auto w-full max-w-[1180px]">

@@ -1,136 +1,79 @@
-import { NextResponse } from 'next/server'
-import {
-  EMPTY_TEACHING_ANNOTATIONS,
-  type LessonState,
-  type TeachingAnnotations,
-  isLessonState,
-  isTeachingAnnotations,
-} from '@/lib/session/teaching-state'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  getGroupSessionTeachingStateForUser,
+  saveGroupSessionTeachingStateForTeacher,
+} from '@/lib/services/live-session-service'
+import { jsonError, jsonOk } from '@/lib/request/responses'
+import { parseResourceId, sanitizeText } from '@/lib/request/validation'
+import { isLessonState, isTeachingAnnotations } from '@/lib/session/teaching-state'
 
-type GroupSessionAccessRow = {
-  session_id: string
-  status: 'scheduled' | 'completed' | 'cancelled' | string
-  access_role: 'teacher' | 'student' | string
-}
-
-type TeachingStateRow = {
-  lesson: LessonState | null
-  whiteboard_snapshot: string | null
-  annotations: TeachingAnnotations | null
-}
-
-async function loadAuthorizedGroupSession(sessionId: string) {
+async function requireRequestUser() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    return { error: NextResponse.json({ error: 'Unauthorized.' }, { status: 401 }) }
-  }
-
-  const { data: sessionData, error: sessionError } = await supabase
-    .rpc('get_group_session_room_access', { target_session_id: sessionId })
-    .maybeSingle()
-
-  if (sessionError || !sessionData) {
-    return { error: NextResponse.json({ error: 'Group session not found.' }, { status: 404 }) }
-  }
-
-  const session = sessionData as GroupSessionAccessRow
-  if (session.access_role !== 'teacher' && session.access_role !== 'student') {
-    return { error: NextResponse.json({ error: 'Forbidden.' }, { status: 403 }) }
-  }
-
-  return {
-    supabase,
-    session,
-  }
+  if (!user) return { ok: false as const, response: jsonError('Unauthorized.', 401) }
+  return { ok: true as const, supabase }
 }
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const sessionId = url.searchParams.get('sessionId')?.trim() ?? ''
+    const sessionId = parseResourceId(url.searchParams.get('sessionId'), 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
+    const result = await getGroupSessionTeachingStateForUser(auth.supabase, sessionId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase } = access
-    const { data: stateData, error: stateError } = await supabase
-      .rpc('get_group_session_teaching_state', { target_session_id: sessionId })
-      .maybeSingle()
-
-    if (stateError) {
-      return NextResponse.json({ error: stateError.message }, { status: 400 })
-    }
-
-    const state = stateData as TeachingStateRow | null
-    return NextResponse.json({
-      lesson: state?.lesson ?? null,
-      whiteboardSnapshot: state?.whiteboard_snapshot ?? null,
-      annotations: state?.annotations ?? EMPTY_TEACHING_ANNOTATIONS,
-    })
+    return jsonOk(result.data)
   } catch {
-    return NextResponse.json({ error: 'Unable to load teaching state right now.' }, { status: 500 })
+    return jsonError('Unable to load teaching state right now.', 500)
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      sessionId?: string
-      lesson?: unknown
-      whiteboardSnapshot?: string | null
-      annotations?: unknown
-    }
-    const sessionId = String(body.sessionId ?? '').trim()
+    const body = (await request.json().catch(() => null)) as
+      | {
+          sessionId?: unknown
+          lesson?: unknown
+          whiteboardSnapshot?: unknown
+          annotations?: unknown
+        }
+      | null
+    const sessionId = parseResourceId(body?.sessionId, 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
-
-    if (!isLessonState(body.lesson)) {
-      return NextResponse.json({ error: 'Invalid teaching state.' }, { status: 400 })
-    }
-
-    if (body.annotations !== undefined && !isTeachingAnnotations(body.annotations)) {
-      return NextResponse.json({ error: 'Invalid annotation state.' }, { status: 400 })
+    if (!isLessonState(body?.lesson)) {
+      return jsonError('Invalid teaching state.', 400)
     }
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
-
-    const { supabase, session } = access
-    if (session.access_role !== 'teacher') {
-      return NextResponse.json({ error: 'Only the teacher can control teaching tools.' }, { status: 403 })
+    if (body?.annotations !== undefined && !isTeachingAnnotations(body.annotations)) {
+      return jsonError('Invalid annotation state.', 400)
     }
 
-    if (session.status !== 'scheduled') {
-      return NextResponse.json(
-        { error: 'Teaching tools can only be controlled for scheduled group sessions.' },
-        { status: 400 }
-      )
-    }
+    const whiteboardSnapshot =
+      typeof body?.whiteboardSnapshot === 'string'
+        ? sanitizeText(body.whiteboardSnapshot, { maxLength: 750000, trim: false })
+        : null
 
-    const { error: saveError } = await supabase.rpc('save_group_session_teaching_state', {
-      target_session_id: sessionId,
-      next_lesson: body.lesson,
-      next_whiteboard_snapshot: body.whiteboardSnapshot ?? null,
-      next_annotations: body.annotations ?? EMPTY_TEACHING_ANNOTATIONS,
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
+
+    const result = await saveGroupSessionTeachingStateForTeacher(auth.supabase, {
+      sessionId: sessionId.value,
+      lesson: body.lesson,
+      whiteboardSnapshot,
+      annotations: body.annotations,
     })
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    if (saveError) {
-      return NextResponse.json({ error: saveError.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ ok: true })
+    return jsonOk()
   } catch {
-    return NextResponse.json({ error: 'Unable to save teaching state right now.' }, { status: 500 })
+    return jsonError('Unable to save teaching state right now.', 500)
   }
 }

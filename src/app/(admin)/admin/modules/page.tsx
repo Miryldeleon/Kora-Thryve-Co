@@ -1,5 +1,5 @@
 import { requireAdminAccess } from '@/lib/auth/admin'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
+import { createModuleSignedUrls } from '@/lib/data/module-queries'
 import { adminSignOut, deleteModuleAsAdmin, deleteModuleFolderAsAdmin } from '../actions'
 
 type AdminModulesPageProps = {
@@ -67,18 +67,7 @@ export default async function AdminModulesPage({ searchParams }: AdminModulesPag
   const modules = (moduleData ?? []) as AdminModule[]
   const folderIdSet = new Set(folders.map((folder) => folder.id))
 
-  const modulesWithLinks: AdminModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
+  const modulesWithLinks = (await createModuleSignedUrls(supabase, modules)) as AdminModuleWithUrl[]
 
   const folderModuleCount = new Map<string, number>()
   const ungroupedModules: AdminModuleWithUrl[] = []

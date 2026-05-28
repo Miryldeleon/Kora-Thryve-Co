@@ -49,6 +49,8 @@ type TeachingStateResponse = Partial<SnapshotPayload> & {
   error?: string
 }
 
+const TEACHING_STATE_FALLBACK_POLL_MS = 15000
+
 const CHANNEL_EVENT = {
   REQUEST_SYNC: 'REQUEST_SYNC',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
@@ -493,12 +495,24 @@ export default function TeachingTools({
 
     void loadTeachingState()
     intervalId = window.setInterval(() => {
-      void loadTeachingState()
-    }, 2500)
+      if (document.visibilityState === 'visible') {
+        void loadTeachingState()
+      }
+    }, TEACHING_STATE_FALLBACK_POLL_MS)
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void loadTeachingState()
+      }
+    }
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
 
     return () => {
       cancelled = true
       if (intervalId) window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [applySnapshot, isTeacher, logDebug, normalizeAnnotations, sessionId, stateApiPath, stateResourceParam])
 

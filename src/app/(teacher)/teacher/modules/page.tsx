@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
+import { createModuleSignedUrls } from '@/lib/data/module-queries'
 import { createModuleFolder, moveModuleToFolder, updateModuleMetadata, uploadModule } from './actions'
 
 type TeacherModulesPageProps = {
@@ -157,18 +157,7 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
   const folders = (folderData ?? []) as ModuleFolder[]
   const folderIdSet = new Set(folders.map((folder) => folder.id))
 
-  const modulesWithLinks: TeacherModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
+  const modulesWithLinks = (await createModuleSignedUrls(supabase, modules)) as TeacherModuleWithUrl[]
 
   const query = (q ?? '').trim().toLowerCase()
   const visibleModules = modulesWithLinks.filter((module) => {

@@ -29,7 +29,7 @@ type AttendanceStatusResponse = {
   teacherHasJoinedFalseReason?: string | null
 }
 
-const STUDENT_POLL_INTERVAL_MS = 5000
+const STUDENT_POLL_INTERVAL_MS = 8000
 const ATTENDANCE_POST_MAX_ATTEMPTS = 3
 const ATTENDANCE_POST_RETRY_DELAY_MS = 1000
 
@@ -121,9 +121,10 @@ export default function SessionMeetingStage({
   useEffect(() => {
     if (isTeacher || teacherHasJoined) return
 
-    void loadTeacherPresence()
     const timer = window.setInterval(() => {
-      void loadTeacherPresence()
+      if (document.visibilityState === 'visible') {
+        void loadTeacherPresence()
+      }
     }, STUDENT_POLL_INTERVAL_MS)
     const onVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible') {
@@ -132,6 +133,7 @@ export default function SessionMeetingStage({
     }
     window.addEventListener('focus', onVisibilityOrFocus)
     document.addEventListener('visibilitychange', onVisibilityOrFocus)
+    setIsCheckingStatus(false)
 
     return () => {
       window.clearInterval(timer)

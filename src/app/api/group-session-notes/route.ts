@@ -1,116 +1,61 @@
-import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  getGroupSessionNotesForUser,
+  saveGroupSessionNotesForTeacher,
+} from '@/lib/services/live-session-service'
+import { jsonError, jsonOk } from '@/lib/request/responses'
+import { parseNotes, parseResourceId } from '@/lib/request/validation'
 
-type GroupSessionAccessRow = {
-  session_id: string
-  status: 'scheduled' | 'completed' | 'cancelled' | string
-  access_role: 'teacher' | 'student' | string
-}
-
-type GroupSessionNotesRow = {
-  notes: string
-}
-
-async function loadAuthorizedGroupSession(sessionId: string) {
+async function requireRequestUser() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    return { error: NextResponse.json({ error: 'Unauthorized.' }, { status: 401 }) }
-  }
-
-  const { data: sessionData, error: sessionError } = await supabase
-    .rpc('get_group_session_room_access', { target_session_id: sessionId })
-    .maybeSingle()
-
-  if (sessionError || !sessionData) {
-    return { error: NextResponse.json({ error: 'Group session not found.' }, { status: 404 }) }
-  }
-
-  const session = sessionData as GroupSessionAccessRow
-  if (session.access_role !== 'teacher' && session.access_role !== 'student') {
-    return { error: NextResponse.json({ error: 'Forbidden.' }, { status: 403 }) }
-  }
-
-  return {
-    supabase,
-    user,
-    session,
-  }
+  if (!user) return { ok: false as const, response: jsonError('Unauthorized.', 401) }
+  return { ok: true as const, supabase }
 }
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const sessionId = url.searchParams.get('sessionId')?.trim() ?? ''
+    const sessionId = parseResourceId(url.searchParams.get('sessionId'), 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
+    const result = await getGroupSessionNotesForUser(auth.supabase, sessionId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase } = access
-    const { data: notesData, error: notesError } = await supabase
-      .rpc('get_group_session_notes', { target_session_id: sessionId })
-      .maybeSingle()
-
-    if (notesError) {
-      return NextResponse.json({ error: notesError.message }, { status: 400 })
-    }
-
-    const noteRow = notesData as GroupSessionNotesRow | null
-
-    return NextResponse.json({ notes: noteRow?.notes ?? '' })
+    return jsonOk({ notes: result.data.notes })
   } catch {
-    return NextResponse.json({ error: 'Unable to load notes right now.' }, { status: 500 })
+    return jsonError('Unable to load notes right now.', 500)
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { sessionId?: string; notes?: string }
-    const sessionId = String(body.sessionId ?? '').trim()
-    const notes = String(body.notes ?? '')
+    const body = (await request.json().catch(() => null)) as
+      | { sessionId?: unknown; notes?: unknown }
+      | null
+    const sessionId = parseResourceId(body?.sessionId, 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
+    const notes = parseNotes(body?.notes)
+    if (!notes.ok) return jsonError(notes.error, 400)
 
-    if (notes.length > 20000) {
-      return NextResponse.json({ error: 'Notes are too long' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
-
-    const { supabase, session } = access
-
-    if (session.access_role !== 'teacher') {
-      return NextResponse.json({ error: 'Only the teacher can edit notes' }, { status: 403 })
-    }
-
-    if (session.status !== 'scheduled') {
-      return NextResponse.json(
-        { error: 'Notes can only be edited for scheduled group sessions' },
-        { status: 400 }
-      )
-    }
-
-    const { error: upsertError } = await supabase.rpc('save_group_session_notes', {
-      target_session_id: sessionId,
-      next_notes: notes,
+    const result = await saveGroupSessionNotesForTeacher(auth.supabase, {
+      sessionId: sessionId.value,
+      notes: notes.value,
     })
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    if (upsertError) {
-      return NextResponse.json({ error: upsertError.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ ok: true, notes })
+    return jsonOk({ notes: result.data.notes })
   } catch {
-    return NextResponse.json({ error: 'Unable to save notes right now.' }, { status: 500 })
+    return jsonError('Unable to save notes right now.', 500)
   }
 }

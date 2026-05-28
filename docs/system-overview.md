@@ -50,28 +50,33 @@ In simple words:
 
 ```mermaid
 flowchart LR
-  U[Users: Student / Teacher / Admin]
-  N[Next.js App]
-  A[Server Actions and API Routes]
-  S[Supabase]
-  D[(Postgres Database)]
-  ST[Supabase Storage]
-  J[Jitsi / 8x8 Live Video]
+  U[User Layer<br/>Students / Teachers / Admins]
+  F[Frontend Layer<br/>Next.js pages and client components]
+  G[Backend Request Gateway<br/>Server actions and API routes]
+  V[Validation, sanitization,<br/>auth, role, approval, access checks]
+  SV[Service Layer<br/>src/lib/services]
+  DA[Data Access Layer<br/>src/lib/data]
+  SB[Supabase<br/>Auth / Postgres / Storage / RLS / RPCs]
+  J[Jitsi / 8x8<br/>Live video rooms]
 
-  U --> N
-  N --> A
-  A --> S
-  S --> D
-  S --> ST
-  N --> J
-  A --> J
+  U --> F
+  F --> G
+  G --> V
+  V --> SV
+  SV --> DA
+  DA --> SB
+  SV --> J
+  F --> J
 ```
 
 ### Main layers
 
-- **Next.js app**: the website and app pages
-- **Server actions and API routes**: secure backend logic inside the app
-- **Supabase**: authentication, database access, and file storage
+- **User layer**: students, teachers, and admins using the app
+- **Frontend layer**: Next.js server pages and client components that handle UI, form state, loading states, and rendering
+- **Backend request gateway**: server actions and API routes that validate payloads, sanitize inputs, check authentication, verify role and approval status, confirm resource access, and return consistent errors
+- **Service layer**: business logic under `src/lib/services`
+- **Data access layer**: reusable Supabase query helpers under `src/lib/data`
+- **Supabase**: authentication, Postgres access, RLS, storage policies, RPCs, and file storage
 - **Postgres database**: stores users, bookings, classes, attendance, notes, and modules
 - **Supabase Storage**: stores PDF learning modules
 - **Jitsi / 8x8**: powers live session rooms
@@ -795,3 +800,28 @@ The system is organized around clear domains:
 - admin control
 
 That makes the app easier to grow and easier to understand.
+
+# System Architecture
+
+Kora Thryve follows a cleaned layered web application architecture. The frontend is built with Next.js and provides role-based pages for students, teachers, and admins. Pages and client components focus on interface behavior: form input, loading states, rendering returned data, and live room controls.
+
+Sensitive operations do not directly happen in the frontend. Requests go through a backend request gateway made from Next.js server actions and API routes. This gateway validates request payloads, sanitizes string inputs such as notes and profile fields, checks authentication, verifies role and approval status, confirms resource access, and returns consistent JSON error responses for API calls.
+
+After a request passes the gateway, it is forwarded to the service layer in `src/lib/services`. The service layer contains business logic for bookings, group classes, modules, attendance, profiles, and live sessions. This keeps business rules separate from page components and API handlers.
+
+The service layer communicates with a centralized data access layer in `src/lib/data`. This layer contains reusable Supabase query helpers, batch reads, mutations, and RPC calls. By centralizing database access, the system reduces duplicated queries and makes request behavior easier to audit.
+
+Supabase provides authentication, the Postgres database, Row Level Security, storage policies, RPC functions, and file storage for PDF learning modules. Jitsi or 8x8 is used as the external live video service for 1-on-1 and group sessions.
+
+Live session pages confirm access on the server before preparing Jitsi room data. Attendance recording, notes, teacher presence, and teaching-state updates remain separate request paths so each operation can be validated and authorized independently.
+
+Request-level caching is used for server auth helpers such as approved student, approved teacher, and admin access checks. Middleware redirects remain in place, and page/API checks still enforce role, approval, and resource access on the server.
+
+## Performance Optimization Notes
+
+- Dashboard reads are parallelized where it is safe to do so.
+- The teacher dashboard uses count queries for booking totals instead of loading every booking row.
+- Module pages use batch `createSignedUrls` for PDF links instead of creating one signed URL request per module.
+- Live room fallback polling was reduced and only runs while the tab is visible.
+- Live group session pages avoid a duplicate teacher-presence RPC by using the loaded attendance snapshot for initial teacher presence.
+- Auth, profile, and admin guard helpers use request-level `cache()` so repeated checks during the same server render can reuse the result.

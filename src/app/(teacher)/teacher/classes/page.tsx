@@ -129,14 +129,26 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
   await searchParams
   const nowIso = new Date().toISOString()
 
-  const { data: groupClassData, error: groupClassError } = await supabase.rpc(
-    'get_teacher_classes_page_group_sessions'
-  )
-  if (groupClassError) {
-    throw new Error(groupClassError.message)
+  const [groupClassResult, bookingResult] = await Promise.all([
+    supabase.rpc('get_teacher_classes_page_group_sessions'),
+    supabase
+      .from('bookings')
+      .select('id, student_name, starts_at, ends_at, status')
+      .eq('teacher_id', user.id)
+      .eq('status', 'confirmed')
+      .gte('starts_at', nowIso)
+      .order('starts_at', { ascending: true }),
+  ])
+
+  if (groupClassResult.error) {
+    throw new Error(groupClassResult.error.message)
   }
 
-  const groupClassRows = (groupClassData ?? []) as TeacherGroupClassRpcRow[]
+  if (bookingResult.error) {
+    throw new Error(bookingResult.error.message)
+  }
+
+  const groupClassRows = (groupClassResult.data ?? []) as TeacherGroupClassRpcRow[]
   const templateRows = Array.from(
     new Map(
       groupClassRows.map((row) => [
@@ -218,19 +230,7 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
     })
     .sort((a, b) => a.sortValue - b.sortValue)
 
-  const { data: bookingData, error: bookingError } = await supabase
-    .from('bookings')
-    .select('id, student_name, starts_at, ends_at, status')
-    .eq('teacher_id', user.id)
-    .eq('status', 'confirmed')
-    .gte('starts_at', nowIso)
-    .order('starts_at', { ascending: true })
-
-  if (bookingError) {
-    throw new Error(bookingError.message)
-  }
-
-  const bookings = (bookingData ?? []) as BookingRow[]
+  const bookings = (bookingResult.data ?? []) as BookingRow[]
   const oneOnOneCards: OneOnOneCard[] = bookings.map((booking) => ({
     id: booking.id,
     title: booking.student_name || '1-on-1 Student',

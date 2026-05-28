@@ -1,126 +1,53 @@
-import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  getGroupSessionTeacherPresenceForUser,
+  recordGroupSessionJoin,
+} from '@/lib/services/attendance-service'
+import { jsonError, jsonOk } from '@/lib/request/responses'
+import { parseResourceId } from '@/lib/request/validation'
 
-type GroupSessionAccessRow = {
-  session_id: string
-  status: 'scheduled' | 'completed' | 'cancelled' | string
-  access_role: 'teacher' | 'student' | string
-}
-
-type GroupSessionTeacherPresenceRow = {
-  teacher_has_joined: boolean
-  teacher_joined_at: string | null
-}
-
-async function loadAuthorizedGroupSession(sessionId: string) {
+async function requireRequestUser() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    return { error: NextResponse.json({ error: 'Unauthorized.' }, { status: 401 }) }
-  }
-
-  const { data: sessionData, error: sessionError } = await supabase
-    .rpc('get_group_session_room_access', { target_session_id: sessionId })
-    .maybeSingle()
-
-  if (sessionError || !sessionData) {
-    return { error: NextResponse.json({ error: 'Group session not found.' }, { status: 404 }) }
-  }
-
-  const session = sessionData as GroupSessionAccessRow
-  if (session.access_role !== 'teacher' && session.access_role !== 'student') {
-    return { error: NextResponse.json({ error: 'Forbidden.' }, { status: 403 }) }
-  }
-
-  return {
-    supabase,
-    user,
-    session,
-    role: session.access_role,
-  }
+  if (!user) return { ok: false as const, response: jsonError('Unauthorized.', 401) }
+  return { ok: true as const, supabase }
 }
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const sessionId = url.searchParams.get('sessionId')?.trim() ?? ''
+    const sessionId = parseResourceId(url.searchParams.get('sessionId'), 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
+    const result = await getGroupSessionTeacherPresenceForUser(auth.supabase, sessionId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase } = access
-    const { data: teacherPresence, error: attendanceError } = await supabase
-      .rpc('get_group_session_teacher_presence', { target_session_id: sessionId })
-      .maybeSingle()
-
-    if (attendanceError) {
-      return NextResponse.json({ error: attendanceError.message }, { status: 400 })
-    }
-
-    const presence = teacherPresence as GroupSessionTeacherPresenceRow | null
-    const teacherJoinedAt = presence?.teacher_joined_at ?? null
-    const teacherHasJoined = Boolean(presence?.teacher_has_joined)
-
-    return NextResponse.json({
-      teacherHasJoined,
-      teacherJoinedAt,
-    })
+    return jsonOk(result.data)
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to load group session attendance right now.' },
-      { status: 500 }
-    )
+    return jsonError('Unable to load group session attendance right now.', 500)
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { sessionId?: string }
-    const sessionId = String(body.sessionId ?? '').trim()
+    const body = (await request.json().catch(() => null)) as { sessionId?: unknown } | null
+    const sessionId = parseResourceId(body?.sessionId, 'session ID')
+    if (!sessionId.ok) return jsonError(sessionId.error, 400)
 
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Missing session ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedGroupSession(sessionId)
-    if ('error' in access) return access.error
+    const result = await recordGroupSessionJoin(auth.supabase, sessionId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase, session } = access
-
-    if (session.status === 'cancelled') {
-      return NextResponse.json(
-        { error: 'This group session was cancelled. Live access is unavailable.' },
-        { status: 400 }
-      )
-    }
-
-    if (session.status === 'completed') {
-      return NextResponse.json(
-        { error: 'This group session has already been completed.' },
-        { status: 400 }
-      )
-    }
-
-    const { error: upsertError } = await supabase.rpc('record_group_session_attendance', {
-      target_session_id: sessionId,
-    })
-
-    if (upsertError) {
-      return NextResponse.json({ error: upsertError.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ ok: true })
+    return jsonOk()
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to record group attendance right now.' },
-      { status: 500 }
-    )
+    return jsonError('Unable to record group attendance right now.', 500)
   }
 }

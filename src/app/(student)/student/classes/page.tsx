@@ -138,19 +138,26 @@ export default async function StudentClassesPage() {
   const { supabase, user } = await requireApprovedStudent()
   const nowIso = new Date().toISOString()
 
-  const { data: bookingData, error: bookingError } = await supabase
-    .from('bookings')
-    .select('id, teacher_name, starts_at, ends_at, status')
-    .eq('student_id', user.id)
-    .eq('status', 'confirmed')
-    .gte('starts_at', nowIso)
-    .order('starts_at', { ascending: true })
+  const [bookingResult, groupClassResult] = await Promise.all([
+    supabase
+      .from('bookings')
+      .select('id, teacher_name, starts_at, ends_at, status')
+      .eq('student_id', user.id)
+      .eq('status', 'confirmed')
+      .gte('starts_at', nowIso)
+      .order('starts_at', { ascending: true }),
+    supabase.rpc('get_student_classes_page_group_sessions'),
+  ])
 
-  if (bookingError) {
-    throw new Error(bookingError.message)
+  if (bookingResult.error) {
+    throw new Error(bookingResult.error.message)
   }
 
-  const oneOnOneCards: OneOnOneCard[] = ((bookingData ?? []) as StudentBookingRow[]).map(
+  if (groupClassResult.error) {
+    throw new Error(groupClassResult.error.message)
+  }
+
+  const oneOnOneCards: OneOnOneCard[] = ((bookingResult.data ?? []) as StudentBookingRow[]).map(
     (booking) => ({
       id: booking.id,
       title: booking.teacher_name || '1-on-1 Teacher',
@@ -162,15 +169,7 @@ export default async function StudentClassesPage() {
     })
   )
 
-  const { data: groupClassData, error: groupClassError } = await supabase.rpc(
-    'get_student_classes_page_group_sessions'
-  )
-
-  if (groupClassError) {
-    throw new Error(groupClassError.message)
-  }
-
-  const groupClassRows = (groupClassData ?? []) as StudentGroupClassRpcRow[]
+  const groupClassRows = (groupClassResult.data ?? []) as StudentGroupClassRpcRow[]
   const templateRows = Array.from(
     new Map(
       groupClassRows.map((row) => [

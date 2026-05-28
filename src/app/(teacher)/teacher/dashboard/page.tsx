@@ -1,15 +1,8 @@
 import { formatDateTimeRange } from '@/lib/booking/format'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { brandUi } from '@/lib/ui/branding'
+import { getTeacherDashboardReads } from '@/lib/services/booking-service'
 import Link from 'next/link'
-
-type TeacherUpcomingSession = {
-  id: string
-  student_name: string | null
-  starts_at: string
-  ends_at: string
-  status: string
-}
 
 type TeacherRecentModule = {
   id: string
@@ -19,49 +12,20 @@ type TeacherRecentModule = {
 
 export default async function TeacherDashboardPage() {
   const { supabase, user } = await requireApprovedTeacher()
+  const reads = await getTeacherDashboardReads(supabase, {
+    teacherId: user.id,
+    nowIso: new Date().toISOString(),
+  })
 
-  const { data: upcomingData, error } = await supabase
-    .from('bookings')
-    .select('id, student_name, starts_at, ends_at, status')
-    .eq('teacher_id', user.id)
-    .eq('status', 'confirmed')
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
-    .limit(3)
+  if (reads.upcoming.error) throw new Error(reads.upcoming.error.message)
+  if (reads.completedCount.error) throw new Error(reads.completedCount.error.message)
+  if (reads.upcomingCount.error) throw new Error(reads.upcomingCount.error.message)
+  if (reads.modules.error) throw new Error(reads.modules.error.message)
 
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const { data: allBookingsData, error: allBookingsError } = await supabase
-    .from('bookings')
-    .select('id, status')
-    .eq('teacher_id', user.id)
-
-  if (allBookingsError) {
-    throw new Error(allBookingsError.message)
-  }
-
-  const { data: modulesData, error: modulesError } = await supabase
-    .from('modules')
-    .select('id, title, created_at')
-    .eq('teacher_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(4)
-
-  if (modulesError) {
-    throw new Error(modulesError.message)
-  }
-
-  const upcomingSessions = (upcomingData ?? []) as TeacherUpcomingSession[]
-  const allBookings = (allBookingsData ?? []) as { id: string; status: string }[]
-  const recentModules = (modulesData ?? []) as TeacherRecentModule[]
-  const completedCount = allBookings.filter(
-    (booking) => booking.status.trim().toLowerCase() === 'completed'
-  ).length
-  const upcomingCount = allBookings.filter(
-    (booking) => booking.status.trim().toLowerCase() === 'confirmed'
-  ).length
+  const upcomingSessions = reads.upcoming.bookings
+  const recentModules = reads.modules.modules as TeacherRecentModule[]
+  const completedCount = reads.completedCount.count
+  const upcomingCount = reads.upcomingCount.count
 
   return (
     <div className="mx-auto w-full max-w-[1180px]">

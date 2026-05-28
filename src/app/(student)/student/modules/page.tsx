@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { requireApprovedStudent } from '@/lib/auth/student'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
+import { createModuleSignedUrls } from '@/lib/data/module-queries'
 
 type StudentModule = {
   id: string
@@ -107,18 +107,10 @@ export default async function StudentModulesPage() {
   const folders = (folderData ?? []) as ModuleFolder[]
   const folderIdSet = new Set(folders.map((folder) => folder.id))
 
-  const modulesWithSignedUrls: StudentModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
+  const modulesWithSignedUrls = (await createModuleSignedUrls(
+    supabase,
+    modules
+  )) as StudentModuleWithUrl[]
 
   const inProgressCount = modulesWithSignedUrls.length > 1 ? Math.min(2, modulesWithSignedUrls.length - 1) : 0
   const completedCount = modulesWithSignedUrls.length > 2 ? 1 : 0

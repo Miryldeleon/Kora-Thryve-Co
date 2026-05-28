@@ -1,12 +1,12 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { formatDateTimeRange } from '@/lib/booking/format'
 import TeachingTools from '@/components/session/teaching-tools'
-import { getFutureJitsiAuthToken, getJitsiPublicConfig } from '@/lib/session/jitsi'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
 import { bookingStatusBadgeClass, brandUi } from '@/lib/ui/branding'
 import SessionNotesPanel from '@/components/session/session-notes-panel'
 import SessionMeetingStage from '@/components/session/session-meeting-stage'
 import { redirect } from 'next/navigation'
+import { getOneOnOneLiveSessionPageData } from '@/lib/services/live-session-service'
+import { parseResourceId } from '@/lib/request/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,50 +14,6 @@ type SessionRoomPageProps = {
   params: Promise<{
     bookingId: string
   }>
-}
-
-type BookingSession = {
-  id: string
-  teacher_id: string
-  teacher_name: string | null
-  student_id: string
-  student_name: string | null
-  starts_at: string
-  ends_at: string
-  status: string
-}
-
-type SessionModule = {
-  id: string
-  folder_id: string | null
-  title: string
-  description: string | null
-  teacher_name: string | null
-  storage_path: string
-}
-
-type SessionFolder = {
-  id: string
-  name: string
-}
-
-type SessionModuleWithUrl = SessionModule & {
-  signedUrl: string | null
-}
-
-type SessionAttendance = {
-  booking_id: string
-  user_id: string
-  role: 'teacher' | 'student'
-  joined_at: string
-}
-
-function normalizeRoomName(roomName: string) {
-  return roomName
-    .replace(/[^a-zA-Z0-9/_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 160)
 }
 
 function activityRoleBadgeClass(role: 'teacher' | 'student') {
@@ -123,7 +79,12 @@ function BookingUnavailableState({
 export default async function SessionRoomPage({
   params,
 }: SessionRoomPageProps) {
-  const { bookingId } = await params
+  const rawParams = await params
+  const bookingId = parseResourceId(rawParams.bookingId, 'booking ID')
+  if (!bookingId.ok) {
+    return <UnauthorizedState />
+  }
+
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
@@ -133,24 +94,24 @@ export default async function SessionRoomPage({
     redirect('/login')
   }
 
-  const { data, error } = await supabase
-    .from('bookings')
-    .select(
-      'id, teacher_id, teacher_name, student_id, student_name, starts_at, ends_at, status'
-    )
-    .eq('id', bookingId)
-    .maybeSingle()
-
-  if (error || !data) {
+  const liveSessionResult = await getOneOnOneLiveSessionPageData(supabase, user, bookingId.value)
+  if (!liveSessionResult.ok) {
     return <UnauthorizedState />
   }
 
-  const booking = data as BookingSession
-  const canAccess = user.id === booking.teacher_id || user.id === booking.student_id
-  if (!canAccess) {
-    return <UnauthorizedState />
-  }
-
+  const {
+    attendanceErrorMessage,
+    attendanceRows,
+    booking,
+    folders,
+    jitsi,
+    jitsiTokenErrorMessage,
+    modules,
+    participantName,
+    role: currentUserRole,
+    savedNotes,
+    teacherHasJoined,
+  } = liveSessionResult.data
   const backHref = user.id === booking.teacher_id ? '/teacher/classes?type=one_on_one' : '/student/classes?type=one_on_one'
   const isTeacher = user.id === booking.teacher_id
 
@@ -159,127 +120,7 @@ export default async function SessionRoomPage({
   }
 
   const isCompletedReviewMode = booking.status === 'completed'
-  const currentUserRole: SessionAttendance['role'] = isTeacher ? 'teacher' : 'student'
-  const roomName = `kora-thryve-${booking.id}`
-  const participantName = isTeacher
-    ? booking.teacher_name || 'Teacher'
-    : booking.student_name || 'Student'
-  const jitsiConfig = getJitsiPublicConfig()
-  const isHostedMode = jitsiConfig.domain === '8x8.vc' || Boolean(jitsiConfig.appId)
-  let jitsiAuthToken: string | null = null
-  let jitsiTokenErrorMessage: string | null = null
-
-  try {
-    jitsiAuthToken = await getFutureJitsiAuthToken({
-      bookingId: booking.id,
-      userId: user.id,
-      role: currentUserRole,
-      displayName: participantName,
-      roomName,
-      roomPrefix: jitsiConfig.roomPrefix,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown Jitsi token error'
-    console.log('[session-page] jitsi token generation failed', {
-      bookingId: booking.id,
-      role: currentUserRole,
-      domain: jitsiConfig.domain,
-      hasAppId: Boolean(jitsiConfig.appId),
-      message,
-    })
-    jitsiTokenErrorMessage =
-      'Live meeting is temporarily unavailable. Please refresh in a moment or contact support.'
-  }
-  if (process.env.NODE_ENV !== 'production') {
-    const normalizedRoom = normalizeRoomName(roomName)
-    const prefixedRoom = jitsiConfig.roomPrefix
-      ? `${normalizeRoomName(jitsiConfig.roomPrefix)}-${normalizedRoom}`.slice(0, 160)
-      : normalizedRoom
-    const hostedPath = jitsiConfig.appId
-      ? `${normalizeRoomName(jitsiConfig.appId)}/${prefixedRoom}`
-      : prefixedRoom
-    console.log('[session-page] jitsi config resolved', {
-      bookingId: booking.id,
-      role: currentUserRole,
-      domain: jitsiConfig.domain,
-      appId: jitsiConfig.appId,
-      room: prefixedRoom,
-      meetingPath: hostedPath,
-      hasAppId: Boolean(jitsiConfig.appId),
-      hasJwt: Boolean(jitsiAuthToken),
-    })
-  }
-
-  const { data: attendanceData, error: attendanceLoadError } = await supabase
-    .from('session_attendance')
-    .select('booking_id, user_id, role, joined_at')
-    .eq('booking_id', booking.id)
-    .order('joined_at', { ascending: false })
-
-  const attendanceErrorMessage = attendanceLoadError?.message
-  const attendanceRows = ((attendanceData ?? []) as SessionAttendance[]).sort((a, b) => {
-    if (a.role === b.role) {
-      return new Date(b.joined_at).getTime() - new Date(a.joined_at).getTime()
-    }
-    return a.role === 'teacher' ? -1 : 1
-  })
-  const latestTeacherJoin = attendanceRows.find((row) => row.role === 'teacher')?.joined_at ?? null
-  const teacherHasJoined = Boolean(latestTeacherJoin)
-
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[session-page] teacher gate seed from attendance', {
-      bookingId: booking.id,
-      role: currentUserRole,
-      latestTeacherJoin,
-      teacherHasJoined,
-      attendanceRowsCount: attendanceRows.length,
-    })
-  }
-
-  const { data: notesData, error: notesLoadError } = await supabase
-    .from('session_notes')
-    .select('notes')
-    .eq('booking_id', booking.id)
-    .maybeSingle()
-
-  if (notesLoadError) {
-    throw new Error(notesLoadError.message)
-  }
-
-  const savedNotes = notesData?.notes ?? ''
-
-  const { data: modulesData, error: modulesError } = await supabase
-    .from('modules')
-    .select('id, folder_id, title, description, teacher_name, storage_path')
-    .order('created_at', { ascending: false })
-
-  if (modulesError) {
-    throw new Error(modulesError.message)
-  }
-
-  const { data: folderData, error: folderError } = await supabase
-    .from('module_folders')
-    .select('id, name')
-    .order('created_at', { ascending: true })
-
-  if (folderError) {
-    throw new Error(folderError.message)
-  }
-
-  const modules = (modulesData ?? []) as SessionModule[]
-  const folders = (folderData ?? []) as SessionFolder[]
-  const modulesWithUrls: SessionModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
+  const isHostedMode = jitsi.domain === '8x8.vc' || Boolean(jitsi.appId)
 
   const shellGridClass = isTeacher
     ? 'grid min-h-[84vh] gap-4 lg:grid-cols-[24%_minmax(0,1fr)] lg:peer-checked:grid-cols-[30%_minmax(0,1fr)]'
@@ -318,7 +159,7 @@ export default async function SessionRoomPage({
                 <div className="flex min-h-[380px] flex-1 items-center justify-center rounded-2xl border border-slate-700 bg-[#131a24] px-5 text-center text-sm text-slate-300 lg:min-h-0">
                   This session has been completed. Live call is disabled in review mode.
                 </div>
-              ) : isHostedMode && (jitsiTokenErrorMessage || !jitsiAuthToken) ? (
+              ) : isHostedMode && (jitsiTokenErrorMessage || !jitsi.authToken) ? (
                 <div className="flex min-h-[380px] flex-1 items-center justify-center rounded-2xl border border-rose-800/70 bg-[#1d1417] px-5 text-center text-sm text-rose-100 lg:min-h-0">
                   {jitsiTokenErrorMessage ||
                     'Live meeting is unavailable because secure meeting access could not be established.'}
@@ -329,13 +170,13 @@ export default async function SessionRoomPage({
                   isTeacher={isTeacher}
                   initialTeacherJoined={teacherHasJoined}
                   jitsi={{
-                    domain: jitsiConfig.domain,
-                    appId: jitsiConfig.appId,
-                    roomPrefix: jitsiConfig.roomPrefix,
-                    authToken: jitsiAuthToken,
-                    roomName,
+                    domain: jitsi.domain,
+                    appId: jitsi.appId,
+                    roomPrefix: jitsi.roomPrefix,
+                    authToken: jitsi.authToken,
+                    roomName: jitsi.roomName,
                     displayName: participantName,
-                    participantRole: isTeacher ? 'teacher' : 'student',
+                    participantRole: currentUserRole,
                     meetingLabel: formatDateTimeRange(booking.starts_at, booking.ends_at),
                     className: 'h-full min-h-[500px] flex-1',
                     compact: true,
@@ -353,7 +194,7 @@ export default async function SessionRoomPage({
                   stateApiPath="/api/session-teaching-state"
                   stateResourceParam="bookingId"
                   folders={folders}
-                  modules={modulesWithUrls.map((module) => ({
+                  modules={modules.map((module) => ({
                     id: module.id,
                     folder_id: module.folder_id,
                     title: module.title,

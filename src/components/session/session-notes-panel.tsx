@@ -18,6 +18,8 @@ type NotesResponse = {
   error?: string
 }
 
+const NOTES_REFRESH_INTERVAL_MS = 10000
+
 export default function SessionNotesPanel({
   resourceId,
   initialNotes,
@@ -64,16 +66,27 @@ export default function SessionNotesPanel({
       }
     }
 
-    void refreshNotes()
     intervalId = window.setInterval(() => {
-      void refreshNotes()
-    }, 4000)
+      if (document.visibilityState === 'visible') {
+        void refreshNotes()
+      }
+    }, NOTES_REFRESH_INTERVAL_MS)
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshNotes()
+      }
+    }
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
 
     return () => {
       cancelled = true
       if (intervalId) {
         window.clearInterval(intervalId)
       }
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [apiPath, isEditable, resourceId, resourceParam])
 

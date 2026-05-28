@@ -1,173 +1,50 @@
-import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getBookingTeacherPresenceForUser, recordBookingJoin } from '@/lib/services/attendance-service'
+import { jsonError, jsonOk } from '@/lib/request/responses'
+import { parseResourceId } from '@/lib/request/validation'
 
-type BookingAccessRow = {
-  id: string
-  teacher_id: string
-  student_id: string
-  status: string
-  starts_at: string
-}
-
-async function loadAuthorizedBooking(bookingId: string) {
+async function requireRequestUser() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    return { error: NextResponse.json({ error: 'Unauthorized.' }, { status: 401 }) }
-  }
-
-  const { data: bookingData, error: bookingError } = await supabase
-    .from('bookings')
-    .select('id, teacher_id, student_id, status, starts_at')
-    .eq('id', bookingId)
-    .maybeSingle()
-
-  if (bookingError || !bookingData) {
-    return { error: NextResponse.json({ error: 'Booking not found.' }, { status: 404 }) }
-  }
-
-  const booking = bookingData as BookingAccessRow
-  const isTeacher = booking.teacher_id === user.id
-  const isStudent = booking.student_id === user.id
-
-  if (!isTeacher && !isStudent) {
-    return { error: NextResponse.json({ error: 'Forbidden.' }, { status: 403 }) }
-  }
-
-  return {
-    supabase,
-    user,
-    booking,
-    role: isTeacher ? ('teacher' as const) : ('student' as const),
-  }
+  if (!user) return { ok: false as const, response: jsonError('Unauthorized.', 401) }
+  return { ok: true as const, supabase, user }
 }
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const bookingId = url.searchParams.get('bookingId')?.trim() ?? ''
+    const bookingId = parseResourceId(url.searchParams.get('bookingId'), 'booking ID')
+    if (!bookingId.ok) return jsonError(bookingId.error, 400)
 
-    if (!bookingId) {
-      return NextResponse.json({ error: 'Missing booking ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedBooking(bookingId)
-    if ('error' in access) return access.error
+    const result = await getBookingTeacherPresenceForUser(auth.supabase, auth.user, bookingId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase } = access
-    const { data: teacherAttendance, error: attendanceError } = await supabase
-      .from('session_attendance')
-      .select('joined_at')
-      .eq('booking_id', bookingId)
-      .eq('role', 'teacher')
-      .order('joined_at', { ascending: false })
-      .limit(1)
-
-    if (attendanceError) {
-      return NextResponse.json({ error: attendanceError.message }, { status: 400 })
-    }
-
-    const teacherJoinedAt = teacherAttendance?.[0]?.joined_at ?? null
-    const teacherHasJoined = Boolean(teacherJoinedAt)
-    const falseReason = teacherHasJoined
-      ? null
-      : teacherAttendance && teacherAttendance.length > 0
-        ? 'Teacher attendance row exists but joined_at is empty.'
-        : 'No teacher attendance rows found for this booking.'
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[session-attendance][GET]', {
-        bookingId,
-        requesterRole: access.role,
-        rawTeacherAttendance: teacherAttendance ?? [],
-        teacherJoinedAt,
-        teacherHasJoined,
-        teacherHasJoinedFalseReason: falseReason,
-      })
-    }
-
-    return NextResponse.json({
-      teacherHasJoined,
-      teacherJoinedAt,
-      teacherHasJoinedFalseReason: falseReason,
-    })
+    return jsonOk(result.data)
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to load session attendance right now.' },
-      { status: 500 }
-    )
+    return jsonError('Unable to load session attendance right now.', 500)
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { bookingId?: string }
-    const bookingId = String(body.bookingId ?? '').trim()
+    const body = (await request.json().catch(() => null)) as { bookingId?: unknown } | null
+    const bookingId = parseResourceId(body?.bookingId, 'booking ID')
+    if (!bookingId.ok) return jsonError(bookingId.error, 400)
 
-    if (!bookingId) {
-      return NextResponse.json({ error: 'Missing booking ID.' }, { status: 400 })
-    }
+    const auth = await requireRequestUser()
+    if (!auth.ok) return auth.response
 
-    const access = await loadAuthorizedBooking(bookingId)
-    if ('error' in access) return access.error
+    const result = await recordBookingJoin(auth.supabase, auth.user, bookingId.value)
+    if (!result.ok) return jsonError(result.error, result.status)
 
-    const { supabase, user, role, booking } = access
-
-    if (booking.status === 'cancelled') {
-      return NextResponse.json(
-        { error: 'This booking was cancelled. Live session access is unavailable.' },
-        { status: 400 }
-      )
-    }
-
-    if (booking.status === 'completed') {
-      return NextResponse.json(
-        { error: 'This booking has already been completed.' },
-        { status: 400 }
-      )
-    }
-
-    const joinedAtIso = new Date().toISOString()
-    const { error: upsertError } = await supabase.from('session_attendance').upsert(
-      {
-        booking_id: bookingId,
-        user_id: user.id,
-        role,
-        joined_at: joinedAtIso,
-      },
-      { onConflict: 'booking_id,user_id' }
-    )
-
-    if (upsertError) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[session-attendance][POST] failed', {
-          bookingId,
-          userId: user.id,
-          role,
-          joinedAt: joinedAtIso,
-          message: upsertError.message,
-        })
-      }
-      return NextResponse.json({ error: upsertError.message }, { status: 400 })
-    }
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[session-attendance][POST]', {
-        bookingId,
-        userId: user.id,
-        role,
-        joinedAt: joinedAtIso,
-      })
-    }
-
-    return NextResponse.json({ ok: true })
+    return jsonOk()
   } catch {
-    return NextResponse.json(
-      { error: 'Unable to record attendance right now.' },
-      { status: 500 }
-    )
+    return jsonError('Unable to record attendance right now.', 500)
   }
 }

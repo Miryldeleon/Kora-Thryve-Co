@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { getFutureJitsiAuthToken, getJitsiPublicConfig } from '@/lib/session/jitsi'
 import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
 import SessionMeetingStage from '@/components/session/session-meeting-stage'
 import TeachingTools from '@/components/session/teaching-tools'
 import SessionNotesPanel from '@/components/session/session-notes-panel'
-import { TEACHER_MODULES_BUCKET } from '@/lib/modules/config'
+import { getGroupLiveSessionPageData } from '@/lib/services/live-session-service'
+import { parseResourceId } from '@/lib/request/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,42 +33,6 @@ type GroupTemplateRow = {
   description: string | null
 }
 
-type GroupSessionRoomAccessRow = {
-  session_id: string
-  template_id: string
-  teacher_id: string | null
-  session_date: string
-  start_time_local: string
-  end_time_local: string
-  status: 'scheduled' | 'completed' | 'cancelled' | string
-  meeting_room_name: string
-  is_active: boolean
-  template_title: string
-  template_description: string | null
-  access_role: 'teacher' | 'student' | string
-}
-
-type GroupSessionParticipantRow = {
-  id: string
-  student_profile_id: string
-}
-
-type GroupAttendanceRow = {
-  session_id: string
-  user_id: string
-  role: 'teacher' | 'student'
-  joined_at: string
-}
-
-type GroupSessionTeacherPresenceRow = {
-  teacher_has_joined: boolean
-  teacher_joined_at: string | null
-}
-
-type GroupSessionNotesRow = {
-  notes: string
-}
-
 type ProfileRow = {
   id: string
   full_name: string | null
@@ -79,24 +43,6 @@ type ParticipantListItem = {
   userId: string
   role: 'teacher' | 'student'
   joinedAt: string | null
-}
-
-type SessionModule = {
-  id: string
-  folder_id: string | null
-  title: string
-  description: string | null
-  teacher_name: string | null
-  storage_path: string
-}
-
-type SessionFolder = {
-  id: string
-  name: string
-}
-
-type SessionModuleWithUrl = SessionModule & {
-  signedUrl: string | null
 }
 
 function sessionStatusBadgeClass(status: string) {
@@ -178,7 +124,12 @@ function SessionUnavailableState({
 }
 
 export default async function GroupSessionPage({ params }: GroupSessionPageProps) {
-  const { sessionId } = await params
+  const rawParams = await params
+  const sessionId = parseResourceId(rawParams.sessionId, 'session ID')
+  if (!sessionId.ok) {
+    return <UnauthorizedState />
+  }
+
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
@@ -188,15 +139,25 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
     redirect('/login')
   }
 
-  const { data: accessData, error: accessError } = await supabase
-    .rpc('get_group_session_room_access', { target_session_id: sessionId })
-    .maybeSingle()
-
-  if (accessError || !accessData) {
+  const liveSessionResult = await getGroupLiveSessionPageData(supabase, user, sessionId.value)
+  if (!liveSessionResult.ok) {
     return <UnauthorizedState />
   }
 
-  const access = accessData as GroupSessionRoomAccessRow
+  const {
+    access,
+    attendanceErrorMessage,
+    attendanceRows,
+    folders,
+    jitsi,
+    jitsiTokenErrorMessage,
+    modules,
+    participants,
+    profiles,
+    role,
+    savedNotes,
+    teacherHasJoined,
+  } = liveSessionResult.data
   const session: GroupSessionRow = {
     id: access.session_id,
     template_id: access.template_id,
@@ -212,99 +173,16 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
     title: access.template_title,
     description: access.template_description,
   }
-  if (access.access_role !== 'teacher' && access.access_role !== 'student') {
-    return <UnauthorizedState />
-  }
-
-  const isTeacher = access.access_role === 'teacher'
+  const isTeacher = role === 'teacher'
   const backHref = isTeacher ? '/teacher/classes?type=group' : '/student/classes?type=group'
 
   if (session.status === 'cancelled' || session.status === 'completed') {
     return <SessionUnavailableState status={session.status} backHref={backHref} />
   }
 
-  const role = isTeacher ? 'teacher' : 'student'
   const displayName = isTeacher ? 'Teacher' : 'Student'
-  const jitsiConfig = getJitsiPublicConfig()
-  const isHostedMode = jitsiConfig.domain === '8x8.vc' || Boolean(jitsiConfig.appId)
-  let jitsiAuthToken: string | null = null
-  let jitsiTokenErrorMessage: string | null = null
-
-  try {
-    jitsiAuthToken = await getFutureJitsiAuthToken({
-      bookingId: session.id,
-      userId: user.id,
-      role,
-      displayName,
-      roomName: session.meeting_room_name,
-      roomPrefix: jitsiConfig.roomPrefix,
-    })
-  } catch {
-    jitsiTokenErrorMessage =
-      'Live meeting is temporarily unavailable. Please refresh in a moment or contact support.'
-  }
-
-  const { data: attendanceData, error: attendanceError } = await supabase
-    .rpc('get_group_session_attendance_snapshot', { target_session_id: session.id })
-
-  const attendanceErrorMessage = attendanceError?.message
-  const attendanceRows = ((attendanceData ?? []) as GroupAttendanceRow[]).sort((a, b) => {
-    if (a.role === b.role) {
-      return new Date(b.joined_at).getTime() - new Date(a.joined_at).getTime()
-    }
-    return a.role === 'teacher' ? -1 : 1
-  })
-
-  const { data: teacherPresenceData, error: teacherPresenceError } = await supabase
-    .rpc('get_group_session_teacher_presence', { target_session_id: session.id })
-    .maybeSingle()
-
-  if (teacherPresenceError) {
-    throw new Error(teacherPresenceError.message)
-  }
-
-  const teacherPresence = teacherPresenceData as GroupSessionTeacherPresenceRow | null
-  const teacherHasJoined = Boolean(teacherPresence?.teacher_has_joined)
-
-  const { data: notesData, error: notesLoadError } = await supabase
-    .rpc('get_group_session_notes', { target_session_id: session.id })
-    .maybeSingle()
-
-  if (notesLoadError) {
-    throw new Error(notesLoadError.message)
-  }
-
-  const noteRow = notesData as GroupSessionNotesRow | null
-  const savedNotes = noteRow?.notes ?? ''
-
-  const { data: participantData, error: participantError } = await supabase
-    .from('group_class_session_participants')
-    .select('id, student_profile_id')
-    .eq('session_id', session.id)
-    .eq('is_active', true)
-
-  if (participantError) {
-    throw new Error(participantError.message)
-  }
-
-  const participants = (participantData ?? []) as GroupSessionParticipantRow[]
-  const studentIds = participants.map((row) => row.student_profile_id)
-  const profileIds = Array.from(
-    new Set([access.teacher_id, ...studentIds, ...attendanceRows.map((row) => row.user_id)])
-  ).filter((profileId): profileId is string => Boolean(profileId))
-  let profileById = new Map<string, ProfileRow>()
-  if (profileIds.length > 0) {
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .in('id', profileIds)
-
-    if (profileError) {
-      throw new Error(profileError.message)
-    }
-
-    profileById = new Map(((profileData ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]))
-  }
+  const isHostedMode = jitsi.domain === '8x8.vc' || Boolean(jitsi.appId)
+  const profileById = new Map((profiles as ProfileRow[]).map((profile) => [profile.id, profile]))
 
   const participantByUserRole = new Map<string, ParticipantListItem>()
   const teacherAttendance = attendanceRows.find((row) => row.role === 'teacher')
@@ -347,39 +225,6 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
   })
   const hasStudentParticipants = participantItems.some((participant) => participant.role === 'student')
 
-  const { data: modulesData, error: modulesError } = await supabase
-    .from('modules')
-    .select('id, folder_id, title, description, teacher_name, storage_path')
-    .order('created_at', { ascending: false })
-
-  if (modulesError) {
-    throw new Error(modulesError.message)
-  }
-
-  const { data: folderData, error: folderError } = await supabase
-    .from('module_folders')
-    .select('id, name')
-    .order('created_at', { ascending: true })
-
-  if (folderError) {
-    throw new Error(folderError.message)
-  }
-
-  const modules = (modulesData ?? []) as SessionModule[]
-  const folders = (folderData ?? []) as SessionFolder[]
-  const modulesWithUrls: SessionModuleWithUrl[] = await Promise.all(
-    modules.map(async (module) => {
-      const { data: signedUrlData } = await supabase.storage
-        .from(TEACHER_MODULES_BUCKET)
-        .createSignedUrl(module.storage_path, 60 * 10)
-
-      return {
-        ...module,
-        signedUrl: signedUrlData?.signedUrl ?? null,
-      }
-    })
-  )
-
   return (
     <main className="min-h-screen bg-[#0b0f14] px-4 py-4 text-slate-900 sm:px-6 lg:px-8 xl:px-10">
       <div className="w-full">
@@ -400,7 +245,7 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
                   Live Meeting
                 </h2>
               </div>
-              {isHostedMode && (jitsiTokenErrorMessage || !jitsiAuthToken) ? (
+              {isHostedMode && (jitsiTokenErrorMessage || !jitsi.authToken) ? (
                 <div className="flex min-h-[380px] flex-1 items-center justify-center rounded-2xl border border-rose-800/70 bg-[#1d1417] px-5 text-center text-sm text-rose-100 lg:min-h-0">
                   {jitsiTokenErrorMessage ||
                     'Live meeting is unavailable because secure meeting access could not be established.'}
@@ -413,11 +258,11 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
                   attendanceApiPath="/api/group-session-attendance"
                   attendanceResourceParam="sessionId"
                   jitsi={{
-                    domain: jitsiConfig.domain,
-                    appId: jitsiConfig.appId,
-                    roomPrefix: jitsiConfig.roomPrefix,
-                    authToken: jitsiAuthToken,
-                    roomName: session.meeting_room_name,
+                    domain: jitsi.domain,
+                    appId: jitsi.appId,
+                    roomPrefix: jitsi.roomPrefix,
+                    authToken: jitsi.authToken,
+                    roomName: jitsi.roomName,
                     displayName,
                     participantRole: role,
                     meetingLabel: `${formatIsoCalendarDate(session.session_date, {
@@ -440,7 +285,7 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
                   stateApiPath="/api/group-session-teaching-state"
                   stateResourceParam="sessionId"
                   folders={folders}
-                  modules={modulesWithUrls.map((module) => ({
+                  modules={modules.map((module) => ({
                     id: module.id,
                     folder_id: module.folder_id,
                     title: module.title,

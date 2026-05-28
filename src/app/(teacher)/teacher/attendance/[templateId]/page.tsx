@@ -115,31 +115,27 @@ export default async function TeacherAttendanceDetailPage({
   const { supabase } = await requireApprovedTeacher()
   const { templateId } = await params
 
-  const { data: classData, error: classError } = await supabase.rpc(
-    'get_teacher_group_class_details',
-    { target_template_id: templateId }
-  )
-  if (classError) {
-    throw new Error(classError.message)
+  const [classResult, sheetResult] = await Promise.all([
+    supabase.rpc('get_teacher_group_class_details', { target_template_id: templateId }),
+    supabase.rpc('get_teacher_group_class_attendance_sheet', { target_template_id: templateId }),
+  ])
+
+  if (classResult.error) {
+    throw new Error(classResult.error.message)
   }
 
-  const classRows = (classData ?? []) as TeacherClassInfoRow[]
+  if (sheetResult.error) {
+    throw new Error(sheetResult.error.message)
+  }
+
+  const classRows = (classResult.data ?? []) as TeacherClassInfoRow[]
 
   if (classRows.length === 0) {
     notFound()
   }
 
   const classInfo = classRows[0]
-  const { data: sheetData, error: sheetError } = await supabase.rpc(
-    'get_teacher_group_class_attendance_sheet',
-    { target_template_id: templateId }
-  )
-
-  if (sheetError) {
-    throw new Error(sheetError.message)
-  }
-
-  const rows = (sheetData ?? []) as AttendanceSheetRow[]
+  const rows = (sheetResult.data ?? []) as AttendanceSheetRow[]
 
   const sessions: MatrixSession[] = Array.from(
     new Map(

@@ -1,7 +1,8 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
-export async function isAdminUser(userId: string) {
+export const isAdminUser = cache(async function isAdminUser(userId: string) {
   const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('admin_users')
@@ -11,9 +12,9 @@ export async function isAdminUser(userId: string) {
 
   if (error) return false
   return Boolean(data?.user_id)
-}
+})
 
-export async function requireAdminAccess() {
+export const requireAdminAccess = cache(async function requireAdminAccess() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
@@ -34,4 +35,4 @@ export async function requireAdminAccess() {
   }
 
   return { supabase, user }
-}
+})

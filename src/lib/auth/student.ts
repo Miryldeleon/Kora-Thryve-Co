@@ -1,7 +1,8 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
-export async function requireApprovedStudent() {
+export const requireApprovedStudent = cache(async function requireApprovedStudent() {
   const supabase = await createServerSupabaseClient()
   const {
     data: { user },
@@ -22,4 +23,4 @@ export async function requireApprovedStudent() {
   }
 
   return { supabase, user }
-}
+})
