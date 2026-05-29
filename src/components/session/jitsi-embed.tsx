@@ -126,7 +126,6 @@ export default function JitsiEmbed({
   authToken,
   roomName,
   displayName,
-  meetingLabel,
   participantRole,
   className,
   compact = false,
@@ -160,7 +159,6 @@ export default function JitsiEmbed({
     const tokenQuery = authToken ? `?jwt=${encodeURIComponent(authToken)}` : ''
     return `https://${meetingDomain}/${meetingPath}${tokenQuery}`
   }, [authToken, meetingDomain, meetingPath])
-  const isPublicMeetInstance = useMemo(() => meetingDomain === 'meet.jit.si', [meetingDomain])
   const status = statusUi(sessionState)
   const isDevelopment = process.env.NODE_ENV !== 'production'
 
@@ -445,7 +443,7 @@ export default function JitsiEmbed({
     <div
       className={[
         'rounded-2xl border border-slate-800 bg-[#0f1520]',
-        compact ? 'flex min-h-[220px] flex-col md:min-h-[500px] lg:min-h-[620px]' : 'mt-4',
+        compact ? 'flex min-h-[180px] flex-col md:min-h-[300px] lg:min-h-0' : 'mt-4',
         className ?? '',
       ].join(' ')}
     >
@@ -470,24 +468,13 @@ export default function JitsiEmbed({
             href={openInNewTabUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800/70"
+            className="inline-flex rounded-lg border border-[#9f8562]/70 bg-[#b8966b] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#a9875d]"
           >
-            Open in New Tab
+            Join Meeting
           </a>
         </div>
         {(sessionState !== 'live' || issueText) && (
           <p className="mt-1.5 text-xs text-slate-400">{issueText || status.hint}</p>
-        )}
-        {meetingLabel && <p className="mt-1 text-xs text-slate-400">Session: {meetingLabel}</p>}
-        {isPublicMeetInstance && sessionState !== 'live' && (
-          <p className="mt-1 text-xs text-slate-400">
-            Public Jitsi mode: teacher should join first so students can enter smoothly.
-          </p>
-        )}
-        {sessionState === 'connecting' && (
-          <p className="mt-1 text-xs text-slate-400">
-            If prejoin is visible below, continue by clicking Join in the embedded room.
-          </p>
         )}
       </div>
 
@@ -496,7 +483,7 @@ export default function JitsiEmbed({
           ref={containerRef}
           className={
             compact
-              ? 'h-full min-h-[220px] w-full md:min-h-[500px] lg:h-[60vh] lg:max-h-[860px]'
+              ? 'h-full min-h-[130px] w-full md:min-h-[220px] lg:min-h-[260px]'
               : 'h-[520px] w-full'
           }
         />
@@ -516,12 +503,7 @@ export default function JitsiEmbed({
         </div>
       </div>
 
-      {isDevelopment && (
-        <div className="px-4 pb-3 text-[11px] text-slate-400">
-          Domain: <span className="font-medium text-slate-500">{meetingDomain}</span> | Room:{' '}
-          <span className="font-medium text-slate-500">{meetingPath}</span>
-        </div>
-      )}
+      {isDevelopment && issueText && <div className="px-4 pb-3 text-[11px] text-slate-400">{issueText}</div>}
     </div>
   )
 }

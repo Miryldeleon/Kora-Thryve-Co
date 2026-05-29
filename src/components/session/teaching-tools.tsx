@@ -820,7 +820,7 @@ export default function TeachingTools({
 
   return (
     <section className={`${wrapperClass} flex min-h-0 flex-col`}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5 sm:pb-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-100">
             Teaching Tools
@@ -860,7 +860,7 @@ export default function TeachingTools({
             <button
               type="button"
               onClick={() => setTeacherToolsOpen((current) => !current)}
-              className="rounded-xl border border-[#9f8562]/70 bg-[#b8966b] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#a9875d]"
+              className="rounded-xl border border-[#9f8562]/70 bg-[#b8966b] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#a9875d] sm:py-2"
             >
               Teaching Tools
             </button>
@@ -872,7 +872,7 @@ export default function TeachingTools({
         )}
       </div>
 
-      <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+      <div className="mt-2 min-h-0 flex-1 overflow-hidden sm:mt-3">
         {lessonState.surface === 'materials' && (
           <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621]">
             <div
@@ -880,7 +880,7 @@ export default function TeachingTools({
             >
               <div className="min-h-0 flex-1 p-2.5 lg:p-3">
                 {!presentedModule && (
-                  <div className="flex h-full min-h-[340px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600 sm:min-h-[500px]">
+                  <div className="flex h-full min-h-[240px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600 sm:min-h-[340px] lg:min-h-[500px]">
                     {isTeacher
                       ? 'Choose a module, then click Present in the tools rail.'
                       : 'Waiting for the teacher to present a lesson material.'}
@@ -1149,7 +1149,7 @@ export default function TeachingTools({
         {lessonState.surface === 'whiteboard' && (
           <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621]">
             <div
-              className="flex min-h-[340px] flex-col border-b border-slate-800 p-2.5 sm:min-h-[660px] xl:min-h-0 xl:border-b-0"
+              className="flex min-h-[240px] flex-col border-b border-slate-800 p-2.5 sm:min-h-[420px] lg:min-h-[660px] xl:min-h-0 xl:border-b-0"
             >
               {!isTeacher && (
                 <div className="mb-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300">

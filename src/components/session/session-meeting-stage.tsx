@@ -144,12 +144,9 @@ export default function SessionMeetingStage({
 
   if (!canEnterLiveMeeting) {
     return (
-      <div className="flex min-h-[380px] flex-1 flex-col items-center justify-center rounded-2xl border border-slate-700 bg-[#131a24] px-5 text-center text-sm text-slate-300 lg:min-h-0">
-        <p className="text-base font-medium text-slate-100">Waiting for your teacher to start the session</p>
-        <p className="mt-2 max-w-md text-sm text-slate-300">
-          Your live room unlocks as soon as the teacher joins. Keep this page open and you will enter
-          automatically.
-        </p>
+      <div className="flex min-h-[170px] flex-1 flex-col items-center justify-center rounded-2xl border border-slate-700 bg-[#131a24] px-5 text-center text-sm text-slate-300 md:min-h-[260px] lg:min-h-0">
+        <p className="text-base font-medium text-slate-100">Waiting for teacher</p>
+        <p className="mt-2 max-w-xs text-sm text-slate-300">The live room opens when the teacher joins.</p>
         {isCheckingStatus && <p className="mt-3 text-xs text-slate-400">Checking session status...</p>}
         {statusError && <p className="mt-3 text-xs text-rose-300">{statusError}</p>}
         <button
