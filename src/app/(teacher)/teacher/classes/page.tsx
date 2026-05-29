@@ -30,7 +30,6 @@ type TeacherGroupClassRpcRow = {
   start_time_local: string | null
   end_time_local: string | null
   status: string | null
-  participant_count: number | null
 }
 
 type BookingRow = {
@@ -45,9 +44,6 @@ type GroupSessionListItem = {
   id: string
   dateLabel: string
   timeLabel: string
-  status: string
-  participantCount: number
-  href: string
   sortValue: number
 }
 
@@ -56,9 +52,7 @@ type GroupClassCard = {
   className: string
   nextSessionDateLabel: string
   nextSessionTimeLabel: string
-  nextParticipantCount: number
   upcomingSessionCount: number
-  sessions: GroupSessionListItem[]
   sortValue: number
 }
 
@@ -103,7 +97,12 @@ function formatGroupDate(sessionDate: string) {
 }
 
 function formatGroupTime(startTimeLocal: string, endTimeLocal: string) {
-  return `${startTimeLocal} - ${endTimeLocal}`
+  return `${formatLocalTimeWithoutSeconds(startTimeLocal)} - ${formatLocalTimeWithoutSeconds(endTimeLocal)}`
+}
+
+function formatLocalTimeWithoutSeconds(timeLocal: string) {
+  const [hour = '00', minute = '00'] = timeLocal.split(':')
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
 }
 
 function formatBookingDate(startsAt: string) {
@@ -186,20 +185,11 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
       end_time_local: row.end_time_local,
       status: row.status,
     }))
-  const participantCountBySession = new Map(
-    groupClassRows
-      .filter((row) => row.session_id !== null)
-      .map((row) => [row.session_id as string, row.participant_count ?? 0])
-  )
-
   const groupSessionItems: GroupSessionListItem[] = groupSessions.map((session) => {
     return {
       id: session.id,
       dateLabel: formatGroupDate(session.session_date),
       timeLabel: formatGroupTime(session.start_time_local, session.end_time_local),
-      status: session.status,
-      participantCount: participantCountBySession.get(session.id) ?? 0,
-      href: `/group-session/${session.id}`,
       sortValue: toLocalSessionSortValue(session.session_date, session.start_time_local),
     }
   })
@@ -220,11 +210,9 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
       return {
         templateId: template.id,
         className: template.title,
-        nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming session',
+        nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming sessions',
         nextSessionTimeLabel: nextSession?.timeLabel || '',
-        nextParticipantCount: nextSession?.participantCount ?? 0,
         upcomingSessionCount: sortedSessions.length,
-        sessions: sortedSessions,
         sortValue: nextSession?.sortValue ?? Number.MAX_SAFE_INTEGER,
       }
     })
@@ -276,17 +264,16 @@ export default async function TeacherClassesPage({ searchParams }: TeacherClasse
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-indigo-700">↻</span>
-                      <p className="text-base font-semibold text-slate-900">{group.className}</p>
-                    </div>
+                    <p className="text-base font-semibold text-slate-900">{group.className}</p>
                     <p className="mt-1 text-sm text-slate-600">
                       Next: {group.nextSessionDateLabel}
-                      {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
                     </p>
+                    {group.nextSessionTimeLabel && (
+                      <p className="mt-1 text-sm text-slate-600">{group.nextSessionTimeLabel}</p>
+                    )}
                     <p className="mt-1 text-sm text-slate-600">
                       {group.upcomingSessionCount} upcoming session
-                      {group.upcomingSessionCount === 1 ? '' : 's'} | Participants (next): {group.nextParticipantCount}
+                      {group.upcomingSessionCount === 1 ? '' : 's'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

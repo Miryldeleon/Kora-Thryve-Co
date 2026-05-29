@@ -37,6 +37,7 @@ type PdfCanvasLayerProps = {
   page: number
   zoom: number
   isTeacher: boolean
+  containerSize: { width: number; height: number }
   onTotalPagesChange?: (pages: number) => void
   onViewportChange: (viewport: { width: number; height: number }) => void
   onLoadingChange: (isLoading: boolean) => void
@@ -126,6 +127,7 @@ const PdfCanvasLayer = memo(function PdfCanvasLayer({
   page,
   zoom,
   isTeacher,
+  containerSize,
   onTotalPagesChange,
   onViewportChange,
   onLoadingChange,
@@ -220,6 +222,7 @@ const PdfCanvasLayer = memo(function PdfCanvasLayer({
     let cancelled = false
 
     if (!pdfDocument || !canvasRef.current) return
+    if (containerSize.width <= 0 || containerSize.height <= 0) return
 
     ;(async () => {
       try {
@@ -231,21 +234,32 @@ const PdfCanvasLayer = memo(function PdfCanvasLayer({
         const context = canvas.getContext('2d')
         if (!context) return
 
+        const pdfPage = await pdfDocument.getPage(targetPage)
+        if (cancelled) return
+
+        const baseViewport = pdfPage.getViewport({ scale: 1 })
+        const fitScale = Math.max(
+          0.2,
+          Math.min(
+            containerSize.width / baseViewport.width,
+            containerSize.height / baseViewport.height
+          )
+        )
+        const scale = fitScale * (clampedZoom / 100)
+        const viewport = pdfPage.getViewport({ scale })
+        const devicePixelRatio = window.devicePixelRatio || 1
+
         if (isDebugLoggingEnabled()) {
           console.log('[controlled-pdf-stage] page render start', {
             role: isTeacher ? 'teacher' : 'student',
             page: targetPage,
             zoom: clampedZoom,
+            fitScale,
+            containerWidth: containerSize.width,
+            containerHeight: containerSize.height,
             fileUrl,
           })
         }
-
-        const pdfPage = await pdfDocument.getPage(targetPage)
-        if (cancelled) return
-
-        const scale = clampedZoom / 100
-        const viewport = pdfPage.getViewport({ scale })
-        const devicePixelRatio = window.devicePixelRatio || 1
 
         canvas.width = Math.floor(viewport.width * devicePixelRatio)
         canvas.height = Math.floor(viewport.height * devicePixelRatio)
@@ -298,15 +312,28 @@ const PdfCanvasLayer = memo(function PdfCanvasLayer({
       renderTaskRef.current?.cancel?.()
       renderTaskRef.current = null
     }
-  }, [clampedZoom, fileUrl, isTeacher, onErrorChange, onLoadingChange, onViewportChange, page, pdfDocument])
+  }, [
+    clampedZoom,
+    containerSize.height,
+    containerSize.width,
+    fileUrl,
+    isTeacher,
+    onErrorChange,
+    onLoadingChange,
+    onViewportChange,
+    page,
+    pdfDocument,
+  ])
 
-  return <canvas ref={canvasRef} className="block" />
+  return <canvas ref={canvasRef} className="block max-w-none" />
 },
 (prev, next) =>
   prev.fileUrl === next.fileUrl &&
   prev.page === next.page &&
   prev.zoom === next.zoom &&
   prev.isTeacher === next.isTeacher &&
+  prev.containerSize.width === next.containerSize.width &&
+  prev.containerSize.height === next.containerSize.height &&
   prev.onTotalPagesChange === next.onTotalPagesChange &&
   prev.onViewportChange === next.onViewportChange &&
   prev.onLoadingChange === next.onLoadingChange &&
@@ -336,6 +363,7 @@ export default function ControlledPdfStage({
   const [isLoading, setIsLoading] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
   const [pageViewport, setPageViewport] = useState({ width: 0, height: 0 })
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const containerRef = useRef<HTMLDivElement | null>(null)
   const pageSurfaceRef = useRef<HTMLDivElement | null>(null)
   const ignoreNextScrollRef = useRef(false)
@@ -398,6 +426,43 @@ export default function ControlledPdfStage({
       if (emitTimeoutRef.current) {
         window.clearTimeout(emitTimeoutRef.current)
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const updateSize = () => {
+      const nextSize = {
+        width: Math.floor(container.clientWidth),
+        height: Math.floor(container.clientHeight),
+      }
+
+      setContainerSize((current) => {
+        if (current.width === nextSize.width && current.height === nextSize.height) {
+          return current
+        }
+
+        return nextSize
+      })
+    }
+
+    const frame = window.requestAnimationFrame(updateSize)
+    window.addEventListener('resize', updateSize)
+    window.addEventListener('orientationchange', updateSize)
+
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(updateSize)
+      observer.observe(container)
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updateSize)
+      window.removeEventListener('orientationchange', updateSize)
+      observer?.disconnect()
     }
   }, [])
 
@@ -529,7 +594,7 @@ export default function ControlledPdfStage({
 
   if (!fileUrl) {
     return (
-      <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600 sm:min-h-[520px]">
+      <div className="flex h-full min-h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-6 text-center text-sm text-slate-300 sm:min-h-[420px]">
         No material is currently presented.
       </div>
     )
@@ -537,29 +602,29 @@ export default function ControlledPdfStage({
 
   if (errorText) {
     return (
-      <div className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-6 text-center text-sm text-rose-700 sm:min-h-[520px]">
+      <div className="flex h-full min-h-[260px] items-center justify-center rounded-xl border border-rose-800/60 bg-rose-950/30 px-6 text-center text-sm text-rose-100 sm:min-h-[420px]">
         {errorText}
       </div>
     )
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col bg-transparent">
       {isLoading && (
-        <p className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        <p className="mb-1.5 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-1.5 text-xs text-slate-300">
           Loading material...
         </p>
       )}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className={`min-h-[360px] flex-1 rounded-xl border border-slate-200 bg-white sm:min-h-[520px] ${
+        className={`flex min-h-[260px] flex-1 items-center justify-center rounded-xl bg-[#080d14] sm:min-h-[420px] ${
           isTeacher ? 'overflow-auto' : 'overflow-hidden'
         }`}
       >
         <div
           ref={pageSurfaceRef}
-          className="relative"
+          className="relative mx-auto"
           style={{
             width: pageViewport.width > 0 ? `${pageViewport.width}px` : undefined,
             height: pageViewport.height > 0 ? `${pageViewport.height}px` : undefined,
@@ -570,6 +635,7 @@ export default function ControlledPdfStage({
             page={page}
             zoom={zoom}
             isTeacher={isTeacher}
+            containerSize={containerSize}
             onTotalPagesChange={onTotalPagesChange}
             onViewportChange={setPageViewport}
             onLoadingChange={setIsLoading}

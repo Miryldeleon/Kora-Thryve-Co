@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function saveGroupSessionNotes(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
       | { sessionId?: unknown; notes?: unknown }
@@ -58,4 +58,16 @@ export async function POST(request: Request) {
   } catch {
     return jsonError('Unable to save notes right now.', 500)
   }
+}
+
+export async function POST(request: Request) {
+  return saveGroupSessionNotes(request)
+}
+
+export async function PUT(request: Request) {
+  return saveGroupSessionNotes(request)
+}
+
+export async function PATCH(request: Request) {
+  return saveGroupSessionNotes(request)
 }

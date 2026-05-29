@@ -154,7 +154,7 @@ export default async function SessionRoomPage({
 
   const studentTeachingToolsNode = (
     <TeachingTools
-      className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-2 lg:p-4"
+      className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-1.5 lg:p-2"
       sessionId={booking.id}
       isTeacher={isTeacher}
       currentUserId={user.id}
@@ -373,7 +373,7 @@ export default async function SessionRoomPage({
             <div className="min-h-0 rounded-2xl border border-slate-800/70 bg-[#0f141d] p-6 lg:p-8">
               <div className="h-full min-h-0 rounded-2xl bg-[#111a27] p-1">
                 <TeachingTools
-                  className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-3 lg:p-4"
+                  className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-1.5 lg:p-2"
                   sessionId={booking.id}
                   isTeacher={isTeacher}
                   currentUserId={user.id}

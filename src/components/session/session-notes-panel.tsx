@@ -115,7 +115,7 @@ export default function SessionNotesPanel({
           {notes}
         </div>
       ) : (
-        <p className={brandUi.mutedCard}>No session notes have been shared yet.</p>
+        <p className={brandUi.mutedCard}>No notes have been added yet.</p>
       )}
     </>
   )

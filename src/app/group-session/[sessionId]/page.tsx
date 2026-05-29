@@ -254,7 +254,7 @@ export default async function GroupSessionPage({ params }: GroupSessionPageProps
 
   const studentTeachingToolsNode = (
     <TeachingTools
-      className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-2 lg:p-4"
+      className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-1.5 lg:p-2"
       sessionId={session.id}
       isTeacher={isTeacher}
       currentUserId={user.id}

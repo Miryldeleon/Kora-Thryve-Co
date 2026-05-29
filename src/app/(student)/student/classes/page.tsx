@@ -32,8 +32,6 @@ type GroupSessionListItem = {
   id: string
   dateLabel: string
   timeLabel: string
-  status: string
-  href: string
   sortValue: number
 }
 
@@ -91,6 +89,15 @@ function toLocalSessionSortValue(sessionDate: string, startTimeLocal: string) {
   const normalized = `${sessionDate}${startTimeLocal}`.replace(/[^0-9]/g, '')
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+}
+
+function formatGroupTime(startTimeLocal: string, endTimeLocal: string) {
+  return `${formatLocalTimeWithoutSeconds(startTimeLocal)} - ${formatLocalTimeWithoutSeconds(endTimeLocal)}`
+}
+
+function formatLocalTimeWithoutSeconds(timeLocal: string) {
+  const [hour = '00', minute = '00'] = timeLocal.split(':')
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`
 }
 
 function normalizeLocalTime(value: string) {
@@ -211,10 +218,8 @@ export default async function StudentClassesPage() {
       id: session.session_id,
       templateId: session.template_id,
       dateLabel: formatIsoCalendarDate(session.session_date, { dateStyle: 'medium' }),
-      timeLabel: `${session.start_time_local} - ${session.end_time_local}`,
-      status: session.status,
+      timeLabel: formatGroupTime(session.start_time_local, session.end_time_local),
       sortValue: toLocalSessionSortValue(session.session_date, session.start_time_local),
-      href: `/group-session/${session.session_id}`,
     }))
 
   const groupItemsByTemplate = new Map<string, GroupSessionListItem[]>()
@@ -224,8 +229,6 @@ export default async function StudentClassesPage() {
       id: session.id,
       dateLabel: session.dateLabel,
       timeLabel: session.timeLabel,
-      status: session.status,
-      href: session.href,
       sortValue: session.sortValue,
     })
     groupItemsByTemplate.set(session.templateId, list)
@@ -240,7 +243,7 @@ export default async function StudentClassesPage() {
       return {
         templateId: template.id,
         className: template.title,
-        nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming session',
+        nextSessionDateLabel: nextSession?.dateLabel || 'No upcoming sessions',
         nextSessionTimeLabel: nextSession?.timeLabel || '',
         upcomingSessionCount: sortedSessions.length,
         sortValue: nextSession?.sortValue ?? Number.MAX_SAFE_INTEGER,
@@ -283,14 +286,13 @@ export default async function StudentClassesPage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-indigo-700">↻</span>
-                      <p className="text-base font-semibold text-slate-900">{group.className}</p>
-                    </div>
+                    <p className="text-base font-semibold text-slate-900">{group.className}</p>
                     <p className="mt-1 text-sm text-slate-600">
                       Next: {group.nextSessionDateLabel}
-                      {group.nextSessionTimeLabel ? ` | ${group.nextSessionTimeLabel}` : ''}
                     </p>
+                    {group.nextSessionTimeLabel && (
+                      <p className="mt-1 text-sm text-slate-600">{group.nextSessionTimeLabel}</p>
+                    )}
                     <p className="mt-1 text-sm text-slate-600">
                       {group.upcomingSessionCount} upcoming session
                       {group.upcomingSessionCount === 1 ? '' : 's'}

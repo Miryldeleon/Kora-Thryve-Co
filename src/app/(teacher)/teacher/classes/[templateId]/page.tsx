@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { formatIsoCalendarDate } from '@/lib/group-classes/date'
 import { brandUi } from '@/lib/ui/branding'
+import GroupSessionNotesDialog from '@/components/session/group-session-notes-dialog'
 
 type TeacherClassDetailPageProps = {
   params: Promise<{
@@ -31,15 +32,15 @@ type ClassSession = {
   id: string
   dateLabel: string
   timeLabel: string
-  status: string
-  roomName: string
-  participantCount: number
   href: string
   sortValue: number
+  statusLabel: string
+  kind: 'upcoming' | 'completed' | 'cancelled'
+  canOpen: boolean
 }
 
 function classStatusBadgeClass(status: string) {
-  if (status === 'scheduled' || status === 'confirmed') {
+  if (status === 'scheduled' || status === 'confirmed' || status === 'live' || status === 'active') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   }
   if (status === 'completed') return 'border-sky-200 bg-sky-50 text-sky-700'
@@ -52,13 +53,100 @@ function formatGroupDate(sessionDate: string) {
 }
 
 function formatGroupTime(startTimeLocal: string, endTimeLocal: string) {
-  return `${startTimeLocal} - ${endTimeLocal}`
+  return `${formatTimeLabel(startTimeLocal)} - ${formatTimeLabel(endTimeLocal)}`
 }
 
 function toLocalSessionSortValue(sessionDate: string, startTimeLocal: string) {
-  const normalized = `${sessionDate}${startTimeLocal}`.replace(/[^0-9]/g, '')
+  const normalized = `${sessionDate}${toComparableTime(startTimeLocal)}`.replace(/[^0-9]/g, '')
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+}
+
+function formatTimeLabel(timeLocal: string) {
+  const [hourPart, minutePart] = timeLocal.split(':')
+  const hour = Number(hourPart)
+  const minute = Number(minutePart)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return timeLocal
+
+  const displayHour = hour % 12 || 12
+  const suffix = hour >= 12 ? 'PM' : 'AM'
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${suffix}`
+}
+
+function toComparableTime(timeLocal: string) {
+  const [hourPart = '00', minutePart = '00'] = timeLocal.split(':')
+  return `${hourPart.padStart(2, '0')}${minutePart.padStart(2, '0')}`
+}
+
+function nowSortValueForTimezone(timeZone: string) {
+  const localNowSortValue = () => {
+    const now = new Date()
+    const normalized = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+      now.getDate()
+    ).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+    return Number(normalized)
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date())
+
+    const byType = new Map(parts.map((part) => [part.type, part.value]))
+    const hour = byType.get('hour') === '24' ? '00' : byType.get('hour')
+    const normalized = `${byType.get('year')}${byType.get('month')}${byType.get('day')}${hour}${byType.get(
+      'minute'
+    )}`
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : localNowSortValue()
+  } catch {
+    return localNowSortValue()
+  }
+}
+
+function buildSessionState(status: string, startSortValue: number, endSortValue: number, nowSortValue: number) {
+  const normalizedStatus = status.toLowerCase()
+
+  if (normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') {
+    return {
+      kind: 'cancelled' as const,
+      statusLabel: 'Cancelled',
+      canOpen: false,
+    }
+  }
+
+  if (normalizedStatus === 'completed' || normalizedStatus === 'done' || endSortValue < nowSortValue) {
+    return {
+      kind: 'completed' as const,
+      statusLabel: 'Completed',
+      canOpen: false,
+    }
+  }
+
+  if (
+    normalizedStatus === 'live' ||
+    normalizedStatus === 'active' ||
+    normalizedStatus === 'in_progress' ||
+    (startSortValue <= nowSortValue && endSortValue >= nowSortValue)
+  ) {
+    return {
+      kind: 'upcoming' as const,
+      statusLabel: 'Live',
+      canOpen: true,
+    }
+  }
+
+  return {
+    kind: 'upcoming' as const,
+    statusLabel: 'Scheduled',
+    canOpen: true,
+  }
 }
 
 export default async function TeacherClassDetailPage({ params }: TeacherClassDetailPageProps) {
@@ -80,6 +168,7 @@ export default async function TeacherClassDetailPage({ params }: TeacherClassDet
   }
 
   const classInfo = classRows[0]
+  const nowSortValue = nowSortValueForTimezone(classInfo.template_timezone)
   const sessions: ClassSession[] = classRows
     .filter(
       (
@@ -99,18 +188,27 @@ export default async function TeacherClassDetailPage({ params }: TeacherClassDet
         row.status !== null &&
         row.meeting_room_name !== null
     )
-    .map((row) => ({
-      id: row.session_id,
-      dateLabel: formatGroupDate(row.session_date),
-      timeLabel: formatGroupTime(row.start_time_local, row.end_time_local),
-      status: row.status,
-      roomName: row.meeting_room_name,
-      participantCount: row.participant_count ?? 0,
-      href: `/group-session/${row.session_id}`,
-      sortValue: toLocalSessionSortValue(row.session_date, row.start_time_local),
-    }))
+    .map((row) => {
+      const sortValue = toLocalSessionSortValue(row.session_date, row.start_time_local)
+      const endSortValue = toLocalSessionSortValue(row.session_date, row.end_time_local)
+      const sessionState = buildSessionState(row.status, sortValue, endSortValue, nowSortValue)
+
+      return {
+        id: row.session_id,
+        dateLabel: formatGroupDate(row.session_date),
+        timeLabel: formatGroupTime(row.start_time_local, row.end_time_local),
+        href: `/group-session/${row.session_id}`,
+        sortValue,
+        ...sessionState,
+      }
+    })
     .sort((a, b) => a.sortValue - b.sortValue)
 
+  const upcomingSessions = sessions.filter((session) => session.kind === 'upcoming')
+  const historySessions = sessions
+    .filter((session) => session.kind === 'completed' || session.kind === 'cancelled')
+    .sort((a, b) => b.sortValue - a.sortValue)
+  const completedSessionCount = historySessions.filter((session) => session.kind === 'completed').length
   const description = classInfo.template_description?.trim() || 'No class description yet.'
   const enrolledStudentNames = classInfo.enrolled_student_names ?? []
 
@@ -167,39 +265,38 @@ export default async function TeacherClassDetailPage({ params }: TeacherClassDet
 
           <section className={brandUi.section}>
             <div className="flex items-center justify-between gap-3">
-              <h2 className={brandUi.sectionTitle}>Upcoming Session Rooms</h2>
+              <h2 className={brandUi.sectionTitle}>Upcoming Sessions</h2>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                {sessions.length} upcoming
+                {upcomingSessions.length} upcoming
               </span>
             </div>
 
-            {sessions.length === 0 ? (
+            {upcomingSessions.length === 0 ? (
               <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                No generated sessions yet.
+                No upcoming sessions yet.
               </p>
             ) : (
               <div className="mt-4 space-y-3">
-                {sessions.map((session) => (
+                {upcomingSessions.map((session) => (
                   <article key={session.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {session.dateLabel} | {session.timeLabel}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-600">Participants: {session.participantCount}</p>
-                        <p className="mt-1 break-all text-xs text-slate-500">Room: {session.roomName}</p>
+                        <p className="text-sm font-semibold text-slate-900">{session.dateLabel}</p>
+                        <p className="mt-1 text-sm text-slate-600">{session.timeLabel}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span
                           className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.1em] ${classStatusBadgeClass(
-                            session.status
+                            session.statusLabel.toLowerCase()
                           )}`}
                         >
-                          {session.status}
+                          {session.statusLabel}
                         </span>
-                        <Link href={session.href} className={brandUi.secondaryButton}>
-                          Open Session
-                        </Link>
+                        {session.canOpen && (
+                          <Link href={session.href} className={brandUi.secondaryButton}>
+                            Open Session
+                          </Link>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -208,6 +305,48 @@ export default async function TeacherClassDetailPage({ params }: TeacherClassDet
             )}
           </section>
         </div>
+
+        <section className={`mt-5 ${brandUi.section}`}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className={brandUi.sectionTitle}>Session History</h2>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+              {completedSessionCount} completed
+            </span>
+          </div>
+
+          {historySessions.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Completed sessions will appear here.
+            </p>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {historySessions.map((session) => (
+                <article key={session.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{session.dateLabel}</p>
+                      <p className="mt-1 text-sm text-slate-600">{session.timeLabel}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.1em] ${classStatusBadgeClass(
+                          session.statusLabel.toLowerCase()
+                        )}`}
+                      >
+                        {session.statusLabel}
+                      </span>
+                      <GroupSessionNotesDialog
+                        sessionId={session.id}
+                        sessionLabel={`${session.dateLabel} | ${session.timeLabel}`}
+                        isTeacher={true}
+                      />
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   )

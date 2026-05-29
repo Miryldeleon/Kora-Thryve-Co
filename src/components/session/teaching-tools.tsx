@@ -874,13 +874,13 @@ export default function TeachingTools({
 
       <div className="mt-2 min-h-0 flex-1 overflow-hidden sm:mt-3">
         {lessonState.surface === 'materials' && (
-          <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621]">
+          <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#080d14]">
             <div
-              className="flex min-h-0 flex-col border-b border-slate-800 xl:border-b-0"
+              className="flex min-h-0 flex-col"
             >
-              <div className="min-h-0 flex-1 p-2.5 lg:p-3">
+              <div className="min-h-0 flex-1 p-1 sm:p-1.5 lg:p-2">
                 {!presentedModule && (
-                  <div className="flex h-full min-h-[240px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600 sm:min-h-[340px] lg:min-h-[500px]">
+                  <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-6 text-center text-sm text-slate-300 sm:min-h-[320px] lg:min-h-[460px]">
                     {isTeacher
                       ? 'Choose a module, then click Present in the tools rail.'
                       : 'Waiting for the teacher to present a lesson material.'}
@@ -888,25 +888,25 @@ export default function TeachingTools({
                 )}
 
                 {presentedModule && (
-                  <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_22px_58px_-36px_rgba(15,23,42,0.62)]">
-                    <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-2.5 py-2 sm:px-3">
-                      <div className="min-w-0">
-                        <p className="break-words text-sm font-semibold text-slate-900">
+                  <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-[#080d14]">
+                    <div className="pointer-events-none absolute left-2 right-2 top-2 z-10 flex items-start justify-between gap-2">
+                      <div className="min-w-0 rounded-lg border border-slate-800/80 bg-slate-950/75 px-2.5 py-1.5 text-slate-100 shadow-lg shadow-black/20 backdrop-blur-sm">
+                        <p className="truncate text-xs font-semibold sm:text-sm">
                           {presentedModule.title}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="mt-0.5 text-[11px] text-slate-400">
                           Page {lessonState.page}
-                          {isTeacher ? ` | Zoom ${lessonState.zoom}%` : ' | Synced view'}
+                          {isTeacher ? ` | Zoom ${lessonState.zoom}%` : ' | Following teacher'}
+                          {presentedFolderName ? ` | ${presentedFolderName}` : ''}
                         </p>
-                        <p className="break-words text-xs text-slate-500">Folder: {presentedFolderName}</p>
                       </div>
                       {!isTeacher && (
-                        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-600">
+                        <span className="shrink-0 rounded-full border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-slate-300 backdrop-blur-sm">
                           Read-only
                         </span>
                       )}
                     </div>
-                    <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-2 sm:p-3">
+                    <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                       <ControlledPdfStage
                         fileUrl={presentedModule.signedUrl}
                         page={lessonState.page}
@@ -1025,7 +1025,15 @@ export default function TeachingTools({
                     <p className="text-[11px] text-slate-400">
                       Page {lessonState.page} of {Math.max(1, totalPages)}
                     </p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => changeZoom(100)}
+                        disabled={!presentedModule}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 disabled:opacity-50"
+                      >
+                        Fit
+                      </button>
                       <button
                         type="button"
                         onClick={() => changeZoom(lessonState.zoom - 10)}

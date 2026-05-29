@@ -345,14 +345,6 @@ export async function saveGroupSessionNotesForTeacher(
     return { ok: false as const, error: 'Only the teacher can edit notes.', status: 403 }
   }
 
-  if (access.data.session.status !== 'scheduled') {
-    return {
-      ok: false as const,
-      error: 'Notes can only be edited for scheduled group sessions.',
-      status: 400,
-    }
-  }
-
   const { error } = await saveGroupSessionNotes(supabase, input)
   if (error) return { ok: false as const, error: error.message, status: 400 }
   return { ok: true as const, data: { notes: input.notes } }
