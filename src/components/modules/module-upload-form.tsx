@@ -5,13 +5,30 @@ import {
   isPdfFile,
   MAX_MODULE_UPLOAD_SIZE_BYTES,
   MODULE_UPLOAD_SIZE_ERROR_MESSAGE,
+  TEACHER_MODULES_BUCKET,
 } from '@/lib/modules/config'
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser'
 
 type ModuleUploadFormProps = {
-  action: (formData: FormData) => void | Promise<void>
+  action: (input: UploadedModuleMetadataInput) => Promise<UploadedModuleMetadataResult>
   children: ReactNode
   className?: string
 }
+
+type UploadedModuleMetadataInput = {
+  title: string
+  description: string
+  folderId: string | null
+  fileName: string
+  fileSize: number
+  fileType: string
+  storagePath: string
+  returnPath: string | null
+}
+
+type UploadedModuleMetadataResult =
+  | { ok: true; redirectTo: string }
+  | { ok: false; error: string }
 
 type UploadFileInfo = {
   name: string
@@ -29,6 +46,7 @@ export default function ModuleUploadForm({ action, children, className }: Module
   const [progress, setProgress] = useState(0)
   const [statusText, setStatusText] = useState('Uploading...')
   const [fileInfo, setFileInfo] = useState<UploadFileInfo | null>(null)
+  const [uploadFailed, setUploadFailed] = useState(false)
   const submittingRef = useRef(false)
   const roundedProgress = Math.round(progress)
 
@@ -53,46 +71,181 @@ export default function ModuleUploadForm({ action, children, className }: Module
     return () => window.clearInterval(timer)
   }, [isUploading])
 
+  const setUploadControlsDisabled = (form: HTMLFormElement, disabled: boolean) => {
+    const submitButtons = form.querySelectorAll<HTMLButtonElement>('button[type="submit"]')
+    submitButtons.forEach((button) => {
+      button.disabled = disabled
+      if (disabled) {
+        button.dataset.originalText = button.textContent ?? ''
+        button.textContent = 'Uploading...'
+      } else if (button.dataset.originalText) {
+        button.textContent = button.dataset.originalText
+      }
+    })
+
+    const fileInput = form.querySelector<HTMLInputElement>('input[type="file"]')
+    if (fileInput) {
+      fileInput.disabled = disabled
+    }
+  }
+
+  const failUpload = (message: string, form: HTMLFormElement) => {
+    submittingRef.current = false
+    setUploadFailed(true)
+    setStatusText('Upload failed')
+    setError(message)
+    setUploadControlsDisabled(form, false)
+  }
+
+  const getUploadErrorMessage = (errorValue: unknown) => {
+    if (errorValue instanceof Error && errorValue.message) {
+      return errorValue.message
+    }
+
+    return 'Upload failed'
+  }
+
   return (
     <form
-      action={action}
       className={className}
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
+        event.preventDefault()
+
+        const form = event.currentTarget
         const fileInput = event.currentTarget.elements.namedItem('file')
         const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] ?? null : null
-        const submitButtons = event.currentTarget.querySelectorAll<HTMLButtonElement>('button[type="submit"]')
+        const formData = new FormData(form)
+        const title = String(formData.get('title') ?? '').trim()
+        const description = String(formData.get('description') ?? '').trim()
+        const folderIdRaw = String(formData.get('folder_id') ?? '').trim()
+        const returnPath = String(formData.get('return_to') ?? '').trim() || null
 
         setError(null)
+        setUploadFailed(false)
 
         if (submittingRef.current) {
-          event.preventDefault()
           return
         }
 
-        if (!file) return
+        if (!file) {
+          setError('Please upload a PDF file')
+          return
+        }
 
         if (!isPdfFile(file)) {
-          event.preventDefault()
           setError('Only PDF files are allowed')
           return
         }
 
         if (file.size > MAX_MODULE_UPLOAD_SIZE_BYTES) {
-          event.preventDefault()
           setError(MODULE_UPLOAD_SIZE_ERROR_MESSAGE)
           return
         }
 
         submittingRef.current = true
-        submitButtons.forEach((button) => {
-          button.disabled = true
-          button.dataset.originalText = button.textContent ?? ''
-          button.textContent = 'Uploading...'
-        })
+        setUploadControlsDisabled(form, true)
         setFileInfo({ name: file.name, size: file.size })
         setStatusText('Uploading...')
         setProgress(12)
         setIsUploading(true)
+        setUploadFailed(false)
+
+        const supabase = createBrowserSupabaseClient()
+        let uploadedStoragePath: string | null = null
+
+        try {
+          const {
+            data: { user },
+            error: userError,
+          } = await supabase.auth.getUser()
+
+          if (userError || !user) {
+            failUpload('Please sign in again before uploading.', form)
+            return
+          }
+
+          const moduleId = crypto.randomUUID()
+          const storagePath = `${user.id}/${moduleId}.pdf`
+
+          console.info('[module-upload] direct storage upload started', {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            storagePath,
+          })
+
+          const { error: storageError } = await supabase.storage
+            .from(TEACHER_MODULES_BUCKET)
+            .upload(storagePath, file, {
+              contentType: 'application/pdf',
+              upsert: false,
+            })
+
+          if (storageError) {
+            console.error('[module-upload] direct storage upload failed', {
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              storagePath,
+              error: storageError.message,
+              statusCode: 'statusCode' in storageError ? storageError.statusCode : undefined,
+            })
+            failUpload(storageError.message || 'Upload failed', form)
+            return
+          }
+
+          uploadedStoragePath = storagePath
+          setStatusText('Saving...')
+          setProgress(92)
+
+          const result = await action({
+            title,
+            description,
+            folderId: folderIdRaw || null,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type || 'application/pdf',
+            storagePath,
+            returnPath,
+          })
+
+          if (!result.ok) {
+            failUpload(result.error, form)
+            return
+          }
+
+          setStatusText('Upload complete')
+          setProgress(100)
+          window.setTimeout(() => {
+            window.location.assign(result.redirectTo)
+          }, 500)
+        } catch (uploadError) {
+          if (uploadedStoragePath) {
+            const { error: cleanupError } = await supabase.storage
+              .from(TEACHER_MODULES_BUCKET)
+              .remove([uploadedStoragePath])
+
+            if (cleanupError) {
+              console.error('[module-upload] client cleanup failed after upload error', {
+                fileName: file.name,
+                fileSize: file.size,
+                fileType: file.type,
+                storagePath: uploadedStoragePath,
+                error: cleanupError.message,
+                statusCode: 'statusCode' in cleanupError ? cleanupError.statusCode : undefined,
+              })
+            }
+          }
+
+          console.error('[module-upload] upload flow failed', {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            storagePath: uploadedStoragePath,
+            error: getUploadErrorMessage(uploadError),
+          })
+          failUpload(getUploadErrorMessage(uploadError), form)
+        }
       }}
     >
       {error && (
@@ -113,8 +266,14 @@ export default function ModuleUploadForm({ action, children, className }: Module
               <h2 id="module-upload-title" className="text-lg font-semibold">
                 Uploading module
               </h2>
-              <span className="rounded-full border border-sky-700/60 bg-sky-900/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-sky-200">
-                In progress
+              <span
+                className={`rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] ${
+                  uploadFailed
+                    ? 'border-rose-700/60 bg-rose-900/30 text-rose-200'
+                    : 'border-sky-700/60 bg-sky-900/30 text-sky-200'
+                }`}
+              >
+                {uploadFailed ? 'Failed' : 'In progress'}
               </span>
             </div>
 
@@ -147,6 +306,21 @@ export default function ModuleUploadForm({ action, children, className }: Module
               <p className="mt-3 text-sm font-medium text-slate-300" aria-live="polite">
                 {statusText}
               </p>
+              {uploadFailed && error && <p className="mt-2 text-sm text-rose-200">{error}</p>}
+              {uploadFailed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUploading(false)
+                    setUploadFailed(false)
+                    setProgress(0)
+                    setStatusText('Uploading...')
+                  }}
+                  className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-slate-800"
+                >
+                  Try again
+                </button>
+              )}
             </div>
           </div>
         </div>

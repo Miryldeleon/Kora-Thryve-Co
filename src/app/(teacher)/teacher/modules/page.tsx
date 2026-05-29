@@ -3,7 +3,7 @@ import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { createModuleSignedUrls } from '@/lib/data/module-queries'
 import ModuleUploadForm from '@/components/modules/module-upload-form'
 import { MAX_MODULE_UPLOAD_SIZE_MB } from '@/lib/modules/config'
-import { createModuleFolder, moveModuleToFolder, updateModuleMetadata, uploadModule } from './actions'
+import { createModuleFolder, createUploadedModuleRecord, moveModuleToFolder, updateModuleMetadata } from './actions'
 
 type TeacherModulesPageProps = {
   searchParams: Promise<{
@@ -225,7 +225,7 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
       <section id="upload-module" className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Upload New Module</h2>
         <p className="mt-1 text-sm text-slate-600">PDF file must be {MAX_MODULE_UPLOAD_SIZE_MB}MB or smaller.</p>
-        <ModuleUploadForm action={uploadModule} className="mt-4 grid gap-4 md:grid-cols-2">
+        <ModuleUploadForm action={createUploadedModuleRecord} className="mt-4 grid gap-4 md:grid-cols-2">
           <input
             name="title"
             type="text"

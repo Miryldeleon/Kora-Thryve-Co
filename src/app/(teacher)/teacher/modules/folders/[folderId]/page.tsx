@@ -3,7 +3,7 @@ import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { createModuleSignedUrls } from '@/lib/data/module-queries'
 import ModuleUploadForm from '@/components/modules/module-upload-form'
 import { MAX_MODULE_UPLOAD_SIZE_MB } from '@/lib/modules/config'
-import { moveModuleToFolder, updateModuleMetadata, uploadModule } from '../../actions'
+import { createUploadedModuleRecord, moveModuleToFolder, updateModuleMetadata } from '../../actions'
 
 type TeacherFolderPageProps = {
   params: Promise<{
@@ -111,7 +111,7 @@ export default async function TeacherFolderDetailPage({ params, searchParams }: 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Upload Into This Folder</h2>
         <p className="mt-1 text-sm text-slate-600">PDF file must be {MAX_MODULE_UPLOAD_SIZE_MB}MB or smaller.</p>
-        <ModuleUploadForm action={uploadModule} className="mt-4 grid gap-4 md:grid-cols-2">
+        <ModuleUploadForm action={createUploadedModuleRecord} className="mt-4 grid gap-4 md:grid-cols-2">
           <input type="hidden" name="folder_id" value={folder.id} />
           <input type="hidden" name="return_to" value={returnTo} />
           <input
