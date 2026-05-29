@@ -27,9 +27,10 @@ export default function ModuleUploadForm({ action, children, className }: Module
   const [error, setError] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [statusText, setStatusText] = useState('Preparing upload...')
+  const [statusText, setStatusText] = useState('Uploading...')
   const [fileInfo, setFileInfo] = useState<UploadFileInfo | null>(null)
   const submittingRef = useRef(false)
+  const roundedProgress = Math.round(progress)
 
   useEffect(() => {
     if (!isUploading) return
@@ -40,9 +41,9 @@ export default function ModuleUploadForm({ action, children, className }: Module
         const next = Math.min(88, current + increment)
 
         if (next >= 80) {
-          setStatusText('Saving module details...')
+          setStatusText('Saving...')
         } else if (next >= 18) {
-          setStatusText('Uploading PDF...')
+          setStatusText('Uploading...')
         }
 
         return next
@@ -89,7 +90,7 @@ export default function ModuleUploadForm({ action, children, className }: Module
           button.textContent = 'Uploading...'
         })
         setFileInfo({ name: file.name, size: file.size })
-        setStatusText('Preparing upload...')
+        setStatusText('Uploading...')
         setProgress(12)
         setIsUploading(true)
       }}
@@ -108,13 +109,10 @@ export default function ModuleUploadForm({ action, children, className }: Module
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6 backdrop-blur-sm"
         >
           <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-[#0f1622] p-5 text-slate-100 shadow-2xl shadow-black/40">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="module-upload-title" className="text-lg font-semibold">
-                  Uploading module
-                </h2>
-                <p className="mt-1 text-sm text-slate-400">This may take a moment for large PDFs.</p>
-              </div>
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="module-upload-title" className="text-lg font-semibold">
+                Uploading module
+              </h2>
               <span className="rounded-full border border-sky-700/60 bg-sky-900/30 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-sky-200">
                 In progress
               </span>
@@ -128,22 +126,26 @@ export default function ModuleUploadForm({ action, children, className }: Module
             )}
 
             <div className="mt-4">
-              <div
-                role="progressbar"
-                aria-label="Module upload progress"
-                aria-valuetext="Upload in progress; progress is estimated."
-                className="h-3 overflow-hidden rounded-full bg-slate-800"
-              >
+              <div className="flex items-center gap-3">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-[#9cae82] via-[#cfb083] to-sky-400 transition-[width] duration-500"
-                  style={{ width: `${progress}%` }}
-                />
+                  role="progressbar"
+                  aria-label="Module upload progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={roundedProgress}
+                  className="h-3 flex-1 overflow-hidden rounded-full bg-slate-800"
+                >
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#9cae82] via-[#cfb083] to-sky-400 transition-[width] duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <span className="min-w-11 text-right text-sm font-semibold text-slate-100">
+                  {roundedProgress}%
+                </span>
               </div>
-              <p className="mt-3 text-sm text-slate-300" aria-live="polite">
+              <p className="mt-3 text-sm font-medium text-slate-300" aria-live="polite">
                 {statusText}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Progress is estimated while the secure upload request is being processed.
               </p>
             </div>
           </div>
