@@ -95,33 +95,66 @@ function validateUploadedStoragePath(storagePath: string, userId: string) {
   )
 }
 
+function getStoragePathParts(storagePath: string) {
+  const slashIndex = storagePath.indexOf('/')
+  if (slashIndex === -1) {
+    return null
+  }
+
+  return {
+    folderPath: storagePath.slice(0, slashIndex),
+    objectName: storagePath.slice(slashIndex + 1),
+  }
+}
+
 async function verifyUploadedObjectForMetadata({
   storagePath,
   fileName,
   fileSize,
   fileType,
+  folderId,
 }: {
   storagePath: string
   fileName: string
   fileSize: number
   fileType: string
+  folderId: string | null
 }): Promise<{ ok: true } | { ok: false; error: string; shouldCleanup: boolean }> {
   let serviceSupabase: ReturnType<typeof createServiceRoleSupabaseClient>
+  const storagePathParts = getStoragePathParts(storagePath)
+
+  if (!storagePathParts) {
+    console.error('[module-upload] storage verification received invalid path parts', {
+      bucketName: TEACHER_MODULES_BUCKET,
+      fileName,
+      fileSize,
+      fileType,
+      folderId,
+      storagePath,
+    })
+    return {
+      ok: false,
+      error: 'Upload saved to storage but could not be verified.',
+      shouldCleanup: true,
+    }
+  }
 
   try {
     serviceSupabase = createServiceRoleSupabaseClient()
   } catch (error) {
     console.error('[module-upload] storage verification could not create service client', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       error: error instanceof Error ? error.message : 'Unknown service client error',
     })
     return {
       ok: false,
-      error: 'Upload could not be verified. Please try again.',
-      shouldCleanup: false,
+      error: 'Upload saved to storage but could not be verified.',
+      shouldCleanup: true,
     }
   }
 
@@ -133,25 +166,29 @@ async function verifyUploadedObjectForMetadata({
 
   if (existingModuleError) {
     console.error('[module-upload] storage path metadata lookup failed', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       error: existingModuleError.message,
       code: existingModuleError.code,
     })
     return {
       ok: false,
-      error: 'Upload could not be verified. Please try again.',
-      shouldCleanup: false,
+      error: 'Upload saved to storage but could not be verified.',
+      shouldCleanup: true,
     }
   }
 
   if (existingModule) {
     console.error('[module-upload] storage path is already linked to module metadata', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       moduleId: existingModule.id,
     })
@@ -162,43 +199,62 @@ async function verifyUploadedObjectForMetadata({
     }
   }
 
-  const { data: storageObject, error: storageObjectError } = await serviceSupabase
-    .schema('storage')
-    .from('objects')
-    .select('id')
-    .eq('bucket_id', TEACHER_MODULES_BUCKET)
-    .eq('name', storagePath)
-    .maybeSingle()
+  const { data: storageObjects, error: storageObjectError } = await serviceSupabase.storage
+    .from(TEACHER_MODULES_BUCKET)
+    .list(storagePathParts.folderPath, {
+      limit: 100,
+      offset: 0,
+      search: storagePathParts.objectName,
+    })
 
   if (storageObjectError) {
     console.error('[module-upload] uploaded object lookup failed', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       error: storageObjectError.message,
-      code: storageObjectError.code,
+      statusCode: 'statusCode' in storageObjectError ? storageObjectError.statusCode : undefined,
     })
     return {
       ok: false,
-      error: 'Upload could not be verified. Please try again.',
+      error: 'Upload saved to storage but could not be verified.',
+      shouldCleanup: true,
+    }
+  }
+
+  const storageObject = (storageObjects ?? []).find(
+    (object) => object.name === storagePathParts.objectName
+  )
+
+  if (!storageObject) {
+    console.error('[module-upload] uploaded object was not found before metadata insert', {
+      bucketName: TEACHER_MODULES_BUCKET,
+      fileName,
+      fileSize,
+      fileType,
+      folderId,
+      storagePath,
+      listedObjects: storageObjects?.map((object) => object.name) ?? [],
+    })
+    return {
+      ok: false,
+      error: 'Upload saved to storage but could not be verified.',
       shouldCleanup: false,
     }
   }
 
-  if (!storageObject) {
-    console.error('[module-upload] uploaded object was not found before metadata insert', {
-      fileName,
-      fileSize,
-      fileType,
-      storagePath,
-    })
-    return {
-      ok: false,
-      error: 'Uploaded file was not found. Please try again.',
-      shouldCleanup: false,
-    }
-  }
+  console.info('[module-upload] uploaded object verified', {
+    bucketName: TEACHER_MODULES_BUCKET,
+    fileName,
+    fileSize,
+    fileType,
+    folderId,
+    storagePath,
+    verificationResult: 'found',
+  })
 
   return { ok: true }
 }
@@ -414,9 +470,11 @@ export async function createUploadedModuleRecord(
   const storagePath = String(input.storagePath ?? '').trim()
 
   console.info('[module-upload] metadata save requested', {
+    bucketName: TEACHER_MODULES_BUCKET,
     fileName,
     fileSize,
     fileType,
+    folderId,
     storagePath,
     reachedServerAction: true,
   })
@@ -430,6 +488,7 @@ export async function createUploadedModuleRecord(
     fileName,
     fileSize,
     fileType,
+    folderId,
   })
 
   if (!uploadedObjectVerification.ok) {
@@ -518,11 +577,16 @@ export async function createUploadedModuleRecord(
 
     if (folderError || !folderRow) {
       console.error('[module-upload] folder validation failed', {
+        bucketName: TEACHER_MODULES_BUCKET,
         folderId,
+        fileName,
+        fileSize,
+        fileType,
+        storagePath,
         error: folderError?.message,
       })
       return failUploadedMetadataSave({
-        error: folderError?.message ?? 'Selected folder was not found',
+        error: folderError?.message ?? 'Folder could not be verified.',
         storagePath,
         userId: user.id,
         fileName,
@@ -541,15 +605,17 @@ export async function createUploadedModuleRecord(
 
   if (teacherProfileError) {
     console.error('[module-upload] teacher profile lookup failed', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       error: teacherProfileError.message,
       code: teacherProfileError.code,
     })
     return failUploadedMetadataSave({
-      error: teacherProfileError.message,
+      error: 'Module details could not be saved.',
       storagePath,
       userId: user.id,
       fileName,
@@ -577,15 +643,17 @@ export async function createUploadedModuleRecord(
 
   if (insertError) {
     console.error('[module-upload] metadata insert failed', {
+      bucketName: TEACHER_MODULES_BUCKET,
       fileName,
       fileSize,
       fileType,
+      folderId,
       storagePath,
       error: insertError.message,
       code: insertError.code,
     })
     return failUploadedMetadataSave({
-      error: insertError.message,
+      error: 'Module details could not be saved.',
       storagePath,
       userId: user.id,
       fileName,
