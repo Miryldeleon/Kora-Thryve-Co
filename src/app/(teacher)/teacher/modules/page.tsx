@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import { createModuleSignedUrls } from '@/lib/data/module-queries'
 import ModuleUploadForm from '@/components/modules/module-upload-form'
+import { TeacherModuleCard } from '@/components/modules/module-library-cards'
 import { MAX_MODULE_UPLOAD_SIZE_MB } from '@/lib/modules/config'
 import { createModuleFolder, createUploadedModuleRecord, moveModuleToFolder, updateModuleMetadata } from './actions'
 
@@ -21,8 +22,6 @@ type TeacherModule = {
   title: string
   description: string | null
   file_name: string
-  file_type: string
-  file_size: number
   storage_path: string
   created_at: string
 }
@@ -39,102 +38,6 @@ type ModuleFolder = {
   created_at: string
 }
 
-function formatFileSize(bytes: number) {
-  const mb = bytes / (1024 * 1024)
-  return `${mb.toFixed(2)} MB`
-}
-
-function TeacherUngroupedModuleCard({
-  module,
-  folders,
-  currentTeacherId,
-}: {
-  module: TeacherModuleWithUrl
-  folders: ModuleFolder[]
-  currentTeacherId: string
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      {module.teacher_name && (
-        <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Uploaded by {module.teacher_name}</p>
-      )}
-      <div className="flex items-start justify-between gap-3">
-        <span className="inline-flex rounded-full border border-[#d9ccb9] bg-[#f7f3ed] px-3 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#8b7758]">
-          PDF Module
-        </span>
-        <div className="flex gap-2">
-          {module.signedUrl && (
-            <a
-              className="rounded-lg border border-[#d9ccb9] bg-white px-3 py-1.5 text-xs font-medium text-[#8b7758]"
-              href={module.signedUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open
-            </a>
-          )}
-        </div>
-      </div>
-
-      <h3 className="mt-4 text-lg font-semibold text-slate-900">{module.title}</h3>
-      <p className="mt-1 text-sm text-slate-600">{module.file_name} | {formatFileSize(module.file_size)}</p>
-      <p className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">
-        {new Date(module.created_at).toLocaleDateString()}
-      </p>
-
-      <form action={moveModuleToFolder} className="mt-4 grid gap-2">
-        <input type="hidden" name="module_id" value={module.id} />
-        <label className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Move to folder</label>
-        <div className="flex gap-2">
-          <select
-            name="folder_id"
-            defaultValue={module.folder_id ?? ''}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400"
-          >
-            <option value="">Ungrouped</option>
-            {folders.map((folderOption) => (
-              <option key={folderOption.id} value={folderOption.id}>
-                {folderOption.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700"
-          >
-            Move
-          </button>
-        </div>
-      </form>
-
-      {module.teacher_id === currentTeacherId && (
-        <form action={updateModuleMetadata} className="mt-4 grid gap-2">
-          <input type="hidden" name="module_id" value={module.id} />
-          <input
-            name="title"
-            defaultValue={module.title}
-            className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-            required
-          />
-          <input
-            name="description"
-            defaultValue={module.description ?? ''}
-            className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="submit"
-              className="rounded-xl bg-[#9cae82] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#8fa173]"
-            >
-              Edit Details
-            </button>
-          </div>
-        </form>
-      )}
-    </article>
-  )
-}
-
 export default async function TeacherModulesPage({ searchParams }: TeacherModulesPageProps) {
   const { supabase, user } = await requireApprovedTeacher()
   const { success, error, q } = await searchParams
@@ -142,7 +45,7 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
   const { data, error: modulesError } = await supabase
     .from('modules')
     .select(
-      'id, teacher_id, teacher_name, folder_id, title, description, file_name, file_type, file_size, storage_path, created_at'
+      'id, teacher_id, teacher_name, folder_id, title, description, file_name, storage_path, created_at'
     )
     .order('created_at', { ascending: false })
 
@@ -350,11 +253,13 @@ export default async function TeacherModulesPage({ searchParams }: TeacherModule
         ) : (
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {ungroupedModules.map((module) => (
-              <TeacherUngroupedModuleCard
+              <TeacherModuleCard
                 key={module.id}
                 module={module}
                 folders={folders}
                 currentTeacherId={user.id}
+                moveAction={moveModuleToFolder}
+                updateAction={updateModuleMetadata}
               />
             ))}
           </div>

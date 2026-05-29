@@ -1,13 +1,14 @@
 import Link from 'next/link'
 import { requireApprovedStudent } from '@/lib/auth/student'
 import { createModuleSignedUrls } from '@/lib/data/module-queries'
+import { StudentModuleCard } from '@/components/modules/module-library-cards'
 
 type StudentModule = {
   id: string
   folder_id: string | null
   title: string
-  description: string | null
   teacher_name: string | null
+  file_name: string | null
   created_at: string
   storage_path: string
 }
@@ -24,74 +25,12 @@ type ModuleFolder = {
   created_at: string
 }
 
-function StudentModuleCard({ module, index }: { module: StudentModuleWithUrl; index: number }) {
-  const progress = Math.max(10, 100 - index * 18)
-  const statusLabel = progress >= 90 ? 'Completed' : progress >= 35 ? 'In Progress' : 'Not Started'
-  const statusClass =
-    progress >= 90
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : progress >= 35
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-slate-200 bg-slate-100 text-slate-700'
-
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold">{module.title}</h3>
-          <p className="mt-2 text-sm text-slate-600">{module.description?.trim() || 'No description provided.'}</p>
-          <p className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-500">
-            Teacher: {module.teacher_name || 'Not specified'}
-          </p>
-          <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
-            Uploaded: {new Date(module.created_at).toLocaleDateString()}
-          </p>
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Progress</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="mt-2 h-2 rounded-full bg-slate-100">
-              <div className="h-2 rounded-full bg-[#9cae82]" style={{ width: `${Math.min(progress, 100)}%` }} />
-            </div>
-            <span
-              className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${statusClass}`}
-            >
-              {statusLabel}
-            </span>
-          </div>
-        </div>
-        {module.signedUrl && (
-          <div className="flex gap-2 self-end">
-            <a
-              href={module.signedUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-[#d9ccb9] bg-white px-4 py-2 text-sm text-[#8b7758] transition hover:bg-[#f7f3ed]"
-            >
-              Open PDF
-            </a>
-            <a
-              href={module.signedUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl bg-[#cfb083] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#c2a372]"
-            >
-              Preview
-            </a>
-          </div>
-        )}
-      </div>
-    </article>
-  )
-}
-
 export default async function StudentModulesPage() {
   const { supabase } = await requireApprovedStudent()
 
   const { data, error } = await supabase
     .from('modules')
-    .select('id, folder_id, title, description, teacher_name, created_at, storage_path')
+    .select('id, folder_id, title, teacher_name, file_name, created_at, storage_path')
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -115,7 +54,6 @@ export default async function StudentModulesPage() {
   const inProgressCount = modulesWithSignedUrls.length > 1 ? Math.min(2, modulesWithSignedUrls.length - 1) : 0
   const completedCount = modulesWithSignedUrls.length > 2 ? 1 : 0
 
-  const moduleIndexById = new Map(modulesWithSignedUrls.map((module, index) => [module.id, index] as const))
   const folderModuleCount = new Map<string, number>()
   const ungroupedModules: StudentModuleWithUrl[] = []
 
@@ -206,9 +144,9 @@ export default async function StudentModulesPage() {
             No ungrouped modules available.
           </div>
         ) : (
-          <div className="mt-4 grid gap-4">
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {ungroupedModules.map((module) => (
-              <StudentModuleCard key={module.id} module={module} index={moduleIndexById.get(module.id) ?? 0} />
+              <StudentModuleCard key={module.id} module={module} />
             ))}
           </div>
         )}
