@@ -5,7 +5,8 @@ import { redirect } from 'next/navigation'
 import { requireApprovedTeacher } from '@/lib/auth/teacher'
 import {
   isPdfFile,
-  MAX_PDF_FILE_SIZE_BYTES,
+  MAX_MODULE_UPLOAD_SIZE_BYTES,
+  MODULE_UPLOAD_SIZE_ERROR_MESSAGE,
   TEACHER_MODULES_BUCKET,
 } from '@/lib/modules/config'
 
@@ -99,8 +100,8 @@ export async function uploadModule(formData: FormData) {
     redirect(toResultUrl('error', 'Only PDF files are allowed', returnPath))
   }
 
-  if (file.size > MAX_PDF_FILE_SIZE_BYTES) {
-    redirect(toResultUrl('error', 'PDF exceeds 15MB limit', returnPath))
+  if (file.size > MAX_MODULE_UPLOAD_SIZE_BYTES) {
+    redirect(toResultUrl('error', MODULE_UPLOAD_SIZE_ERROR_MESSAGE, returnPath))
   }
 
   if (folderId) {
