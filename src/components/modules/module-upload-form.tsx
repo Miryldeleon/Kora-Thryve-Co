@@ -4,12 +4,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   isPdfFile,
   MAX_MODULE_UPLOAD_SIZE_BYTES,
-  MAX_MODULE_UPLOAD_SIZE_MB,
   MODULE_UPLOAD_SIZE_ERROR_MESSAGE,
   TEACHER_MODULES_BUCKET,
 } from '@/lib/modules/config'
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser'
-import { getSupabaseEnv } from '@/lib/supabase/env'
 
 type ModuleUploadFormProps = {
   action: (input: UploadedModuleMetadataInput) => Promise<UploadedModuleMetadataResult>
@@ -37,38 +35,9 @@ type UploadFileInfo = {
   size: number
 }
 
-const BUCKET_SIZE_REJECTION_MESSAGE =
-  'This file exceeds the active Supabase upload limit. PDF file must be 50MB or smaller on the current plan.'
-
 function formatFileSize(bytes: number) {
   const mb = bytes / (1024 * 1024)
   return `${mb.toFixed(2)} MB`
-}
-
-function getSupabaseProjectHost() {
-  try {
-    return new URL(getSupabaseEnv().supabaseUrl).host
-  } catch {
-    return 'unknown'
-  }
-}
-
-function isStorageSizeLimitError(message: string, statusCode?: unknown) {
-  const normalizedMessage = message.toLowerCase()
-  return (
-    normalizedMessage.includes('exceeded the maximum allowed size') ||
-    normalizedMessage.includes('maximum allowed size') ||
-    statusCode === 413 ||
-    statusCode === '413'
-  )
-}
-
-function getStorageUploadErrorMessage(message: string, statusCode?: unknown) {
-  if (isStorageSizeLimitError(message, statusCode)) {
-    return BUCKET_SIZE_REJECTION_MESSAGE
-  }
-
-  return message || 'Upload failed'
 }
 
 export default function ModuleUploadForm({ action, children, className }: ModuleUploadFormProps) {
@@ -197,22 +166,13 @@ export default function ModuleUploadForm({ action, children, className }: Module
 
           const moduleId = crypto.randomUUID()
           const storagePath = `${user.id}/${moduleId}.pdf`
-          const supabaseProjectHost = getSupabaseProjectHost()
-          const fileSizeMb = file.size / (1024 * 1024)
 
-          if (process.env.NODE_ENV !== 'production') {
-            console.info('[module-upload] direct storage upload started', {
-              supabaseProjectHost,
-              bucketName: TEACHER_MODULES_BUCKET,
-              fileName: file.name,
-              fileSizeBytes: file.size,
-              fileSizeMb: Number(fileSizeMb.toFixed(2)),
-              fileType: file.type,
-              maxUploadSizeBytes: MAX_MODULE_UPLOAD_SIZE_BYTES,
-              maxUploadSizeMb: MAX_MODULE_UPLOAD_SIZE_MB,
-              storagePath,
-            })
-          }
+          console.info('[module-upload] direct storage upload started', {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            storagePath,
+          })
 
           const { error: storageError } = await supabase.storage
             .from(TEACHER_MODULES_BUCKET)
@@ -222,27 +182,15 @@ export default function ModuleUploadForm({ action, children, className }: Module
             })
 
           if (storageError) {
-            const storageStatusCode =
-              'statusCode' in storageError ? storageError.statusCode : undefined
-            const uploadErrorMessage = getStorageUploadErrorMessage(
-              storageError.message,
-              storageStatusCode
-            )
-
             console.error('[module-upload] direct storage upload failed', {
-              supabaseProjectHost,
-              bucketName: TEACHER_MODULES_BUCKET,
               fileName: file.name,
-              fileSizeBytes: file.size,
-              fileSizeMb: Number(fileSizeMb.toFixed(2)),
+              fileSize: file.size,
               fileType: file.type,
-              maxUploadSizeBytes: MAX_MODULE_UPLOAD_SIZE_BYTES,
-              maxUploadSizeMb: MAX_MODULE_UPLOAD_SIZE_MB,
               storagePath,
               error: storageError.message,
-              statusCode: storageStatusCode,
+              statusCode: 'statusCode' in storageError ? storageError.statusCode : undefined,
             })
-            failUpload(uploadErrorMessage, form)
+            failUpload(storageError.message || 'Upload failed', form)
             return
           }
 
