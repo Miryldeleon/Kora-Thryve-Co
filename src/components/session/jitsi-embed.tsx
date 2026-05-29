@@ -445,7 +445,7 @@ export default function JitsiEmbed({
     <div
       className={[
         'rounded-2xl border border-slate-800 bg-[#0f1520]',
-        compact ? 'flex min-h-[620px] flex-col' : 'mt-4',
+        compact ? 'flex min-h-[220px] flex-col md:min-h-[500px] lg:min-h-[620px]' : 'mt-4',
         className ?? '',
       ].join(' ')}
     >
@@ -494,7 +494,11 @@ export default function JitsiEmbed({
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-b-2xl bg-[#030712]">
         <div
           ref={containerRef}
-          className={compact ? 'h-[60vh] min-h-[500px] max-h-[860px] w-full' : 'h-[520px] w-full'}
+          className={
+            compact
+              ? 'h-full min-h-[220px] w-full md:min-h-[500px] lg:h-[60vh] lg:max-h-[860px]'
+              : 'h-[520px] w-full'
+          }
         />
       </div>
 

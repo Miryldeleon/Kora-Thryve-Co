@@ -120,6 +120,7 @@ export default function TeachingTools({
   const [lineWidth, setLineWidth] = useState(3)
   const [pageInput, setPageInput] = useState('1')
   const [totalPages, setTotalPages] = useState(1)
+  const [teacherToolsOpen, setTeacherToolsOpen] = useState(false)
   const channelName = useMemo(() => `session-tools-${sessionId}`, [sessionId])
   const folderNameById = useMemo(() => {
     const map = new Map<string, string>()
@@ -192,6 +193,18 @@ export default function TeachingTools({
     },
     [channelName, isTeacher, sessionId]
   )
+
+  useEffect(() => {
+    if (isTeacher) return
+    window.dispatchEvent(
+      new CustomEvent('kora:teaching-surface-change', {
+        detail: {
+          sessionId,
+          surface: lessonState.surface,
+        },
+      })
+    )
+  }, [isTeacher, lessonState.surface, sessionId])
 
   const broadcastEvent = useCallback(
     async (event: string, payload: Record<string, unknown>) => {
@@ -819,28 +832,37 @@ export default function TeachingTools({
           )}
         </div>
         {isTeacher ? (
-          <div className="flex gap-1.5 rounded-xl border border-slate-700 bg-slate-900/70 p-1">
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <div className="flex gap-1.5 rounded-xl border border-slate-700 bg-slate-900/70 p-1">
+              <button
+                type="button"
+                onClick={() => setActiveSurface('materials')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                  lessonState.surface === 'materials'
+                    ? 'bg-[#b8966b] text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                Presentation
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSurface('whiteboard')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                  lessonState.surface === 'whiteboard'
+                    ? 'bg-[#b8966b] text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                Whiteboard
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => setActiveSurface('materials')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                lessonState.surface === 'materials'
-                  ? 'bg-[#b8966b] text-white'
-                  : 'text-slate-300 hover:bg-slate-800'
-              }`}
+              onClick={() => setTeacherToolsOpen((current) => !current)}
+              className="rounded-xl border border-[#9f8562]/70 bg-[#b8966b] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#a9875d]"
             >
-              Lesson Materials
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSurface('whiteboard')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                lessonState.surface === 'whiteboard'
-                  ? 'bg-[#b8966b] text-white'
-                  : 'text-slate-300 hover:bg-slate-800'
-              }`}
-            >
-              Whiteboard
+              Teaching Tools
             </button>
           </div>
         ) : (
@@ -852,19 +874,13 @@ export default function TeachingTools({
 
       <div className="mt-3 min-h-0 flex-1 overflow-hidden">
         {lessonState.surface === 'materials' && (
-          <div
-            className={`grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621] ${
-              isTeacher ? 'xl:grid-cols-[minmax(0,1fr)_228px]' : 'grid-cols-1'
-            }`}
-          >
+          <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621]">
             <div
-              className={`flex min-h-0 flex-col border-b border-slate-800 ${
-                isTeacher ? 'xl:border-b-0 xl:border-r xl:border-slate-800' : ''
-              }`}
+              className="flex min-h-0 flex-col border-b border-slate-800 xl:border-b-0"
             >
               <div className="min-h-0 flex-1 p-2.5 lg:p-3">
                 {!presentedModule && (
-                  <div className="flex h-full min-h-[500px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600">
+                  <div className="flex h-full min-h-[340px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-600 sm:min-h-[500px]">
                     {isTeacher
                       ? 'Choose a module, then click Present in the tools rail.'
                       : 'Waiting for the teacher to present a lesson material.'}
@@ -917,12 +933,21 @@ export default function TeachingTools({
               </div>
             </div>
 
-            {isTeacher && (
-              <aside className="min-h-0 overflow-y-auto bg-[#0b1119] p-2.5">
+            {isTeacher && teacherToolsOpen && (
+              <aside className="absolute inset-y-0 right-0 z-20 min-h-0 w-full max-w-[330px] overflow-y-auto border-l border-slate-800 bg-[#0b1119] p-2.5 shadow-2xl shadow-black/50">
                 <>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#c7a87f]">
-                    Tools
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#c7a87f]">
+                      Presentation Tools
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setTeacherToolsOpen(false)}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-slate-200"
+                    >
+                      Close
+                    </button>
+                  </div>
                   <div className="mt-2 space-y-2.5">
                     <label className="block text-[11px] text-slate-400">Folder</label>
                     <select
@@ -1122,15 +1147,9 @@ export default function TeachingTools({
         )}
 
         {lessonState.surface === 'whiteboard' && (
-          <div
-            className={`grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621] ${
-              isTeacher ? 'xl:grid-cols-[minmax(0,1fr)_228px]' : 'grid-cols-1'
-            }`}
-          >
+          <div className="relative grid h-full min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-[#0f1621]">
             <div
-              className={`flex min-h-[660px] flex-col border-b border-slate-800 p-2.5 xl:min-h-0 ${
-                isTeacher ? 'xl:border-b-0 xl:border-r xl:border-slate-800' : ''
-              }`}
+              className="flex min-h-[340px] flex-col border-b border-slate-800 p-2.5 sm:min-h-[660px] xl:min-h-0 xl:border-b-0"
             >
               {!isTeacher && (
                 <div className="mb-1.5 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300">
@@ -1152,12 +1171,21 @@ export default function TeachingTools({
               </div>
             </div>
 
-            {isTeacher && (
-              <aside className="min-h-0 overflow-y-auto bg-[#0b1119] p-2.5">
+            {isTeacher && teacherToolsOpen && (
+              <aside className="absolute inset-y-0 right-0 z-20 min-h-0 w-full max-w-[300px] overflow-y-auto border-l border-slate-800 bg-[#0b1119] p-2.5 shadow-2xl shadow-black/50">
                 <>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#c7a87f]">
-                    Whiteboard Tools
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#c7a87f]">
+                      Whiteboard Tools
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setTeacherToolsOpen(false)}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-slate-200"
+                    >
+                      Close
+                    </button>
+                  </div>
                   <div className="mt-2 space-y-2">
                     <button
                       type="button"

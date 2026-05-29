@@ -4,6 +4,7 @@ import TeachingTools from '@/components/session/teaching-tools'
 import { bookingStatusBadgeClass, brandUi } from '@/lib/ui/branding'
 import SessionNotesPanel from '@/components/session/session-notes-panel'
 import SessionMeetingStage from '@/components/session/session-meeting-stage'
+import LiveSessionShell from '@/components/session/live-session-shell'
 import { redirect } from 'next/navigation'
 import { getOneOnOneLiveSessionPageData } from '@/lib/services/live-session-service'
 import { parseResourceId } from '@/lib/request/validation'
@@ -121,6 +122,191 @@ export default async function SessionRoomPage({
 
   const isCompletedReviewMode = booking.status === 'completed'
   const isHostedMode = jitsi.domain === '8x8.vc' || Boolean(jitsi.appId)
+
+  const studentMeetingNode = isCompletedReviewMode ? (
+    <div className="flex h-full min-h-[190px] flex-1 items-center justify-center rounded-2xl border border-slate-700 bg-[#131a24] px-5 text-center text-sm text-slate-300 md:min-h-[360px] lg:min-h-0">
+      This session has been completed. Live call is disabled in review mode.
+    </div>
+  ) : isHostedMode && (jitsiTokenErrorMessage || !jitsi.authToken) ? (
+    <div className="flex h-full min-h-[190px] flex-1 items-center justify-center rounded-2xl border border-rose-800/70 bg-[#1d1417] px-5 text-center text-sm text-rose-100 md:min-h-[360px] lg:min-h-0">
+      {jitsiTokenErrorMessage ||
+        'Live meeting is unavailable because secure meeting access could not be established.'}
+    </div>
+  ) : (
+    <SessionMeetingStage
+      bookingId={booking.id}
+      isTeacher={isTeacher}
+      initialTeacherJoined={teacherHasJoined}
+      jitsi={{
+        domain: jitsi.domain,
+        appId: jitsi.appId,
+        roomPrefix: jitsi.roomPrefix,
+        authToken: jitsi.authToken,
+        roomName: jitsi.roomName,
+        displayName: participantName,
+        participantRole: currentUserRole,
+        meetingLabel: formatDateTimeRange(booking.starts_at, booking.ends_at),
+        className: 'h-full min-h-[190px] flex-1 md:min-h-[360px] lg:min-h-[500px]',
+        compact: true,
+      }}
+    />
+  )
+
+  const studentTeachingToolsNode = (
+    <TeachingTools
+      className="h-full min-h-0 overflow-hidden rounded-2xl bg-[#0f1622] p-2 lg:p-4"
+      sessionId={booking.id}
+      isTeacher={isTeacher}
+      currentUserId={user.id}
+      stateApiPath="/api/session-teaching-state"
+      stateResourceParam="bookingId"
+      folders={folders}
+      modules={modules.map((module) => ({
+        id: module.id,
+        folder_id: module.folder_id,
+        title: module.title,
+        description: module.description,
+        teacher_name: module.teacher_name,
+        signedUrl: module.signedUrl,
+      }))}
+    />
+  )
+
+  const studentNotesNode = (
+    <article className="rounded-2xl border border-slate-200/80 bg-white p-4 text-slate-900 shadow-sm lg:p-5">
+      <h2 className={brandUi.sectionTitle}>Notes / Whiteboard Area</h2>
+      <SessionNotesPanel
+        resourceId={booking.id}
+        initialNotes={savedNotes}
+        isTeacher={isTeacher}
+        isCompletedReviewMode={isCompletedReviewMode}
+      />
+    </article>
+  )
+
+  const studentParticipantsNode = (
+    <article className="rounded-2xl border border-slate-200/80 bg-[#f7f6f3] p-4 text-slate-900 shadow-sm lg:p-5">
+      <h2 className={brandUi.sectionTitle}>Participants / Activity</h2>
+      {attendanceErrorMessage && <p className={brandUi.errorAlert}>{attendanceErrorMessage}</p>}
+      <div className="mt-4 grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Teacher</p>
+            <p className="mt-1 text-sm font-medium text-slate-900">
+              {booking.teacher_name || 'Teacher'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Student</p>
+            <p className="mt-1 text-sm font-medium text-slate-900">
+              {booking.student_name || 'Student'}
+            </p>
+          </div>
+        </div>
+        {attendanceRows.length === 0 && !attendanceErrorMessage && (
+          <p className={brandUi.mutedCard}>No session activity yet.</p>
+        )}
+        {attendanceRows.map((row) => (
+          <article key={`${row.booking_id}-${row.user_id}`} className={brandUi.card}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-medium text-slate-900">
+                {row.role === 'teacher'
+                  ? booking.teacher_name || 'Teacher'
+                  : booking.student_name || 'Student'}
+              </p>
+              <span
+                className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${activityRoleBadgeClass(
+                  row.role
+                )}`}
+              >
+                {row.role}
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-slate-600">Joined: {formatActivityTime(row.joined_at)}</p>
+          </article>
+        ))}
+      </div>
+    </article>
+  )
+
+  const studentDetailsNode = (
+    <section className="rounded-2xl border border-slate-200/80 bg-[#f7f6f3] p-4 shadow-sm lg:p-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Teacher</p>
+          <p className="mt-1 text-sm font-medium text-slate-900">
+            {booking.teacher_name || 'Teacher'}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Student</p>
+          <p className="mt-1 text-sm font-medium text-slate-900">
+            {booking.student_name || 'Student'}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Date / Time</p>
+          <p className="mt-1 text-sm font-medium text-slate-900">
+            {formatDateTimeRange(booking.starts_at, booking.ends_at)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Status</p>
+          <p className="mt-1">
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${bookingStatusBadgeClass(
+                booking.status
+              )}`}
+            >
+              {booking.status}
+            </span>
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+
+  if (!isTeacher) {
+    return (
+      <LiveSessionShell
+        sessionId={booking.id}
+        viewerRole="student"
+        backHref={backHref}
+        title="Teaching Tools"
+        subtitle={formatDateTimeRange(booking.starts_at, booking.ends_at)}
+        statusLabel={booking.status}
+        statusClassName={bookingStatusBadgeClass(booking.status)}
+        sessionBadge={isCompletedReviewMode ? 'Review Mode' : 'Student View'}
+        defaultContentTab="presentation"
+        meeting={studentMeetingNode}
+        teachingTools={studentTeachingToolsNode}
+        notes={studentNotesNode}
+        participants={studentParticipantsNode}
+        details={studentDetailsNode}
+      />
+    )
+  }
+
+  if (isTeacher) {
+    return (
+      <LiveSessionShell
+        sessionId={booking.id}
+        viewerRole="teacher"
+        backHref={backHref}
+        title="Teaching Tools"
+        subtitle={formatDateTimeRange(booking.starts_at, booking.ends_at)}
+        statusLabel={booking.status}
+        statusClassName={bookingStatusBadgeClass(booking.status)}
+        sessionBadge={isCompletedReviewMode ? 'Review Mode' : 'Teacher View'}
+        defaultContentTab="presentation"
+        meeting={studentMeetingNode}
+        teachingTools={studentTeachingToolsNode}
+        notes={studentNotesNode}
+        participants={studentParticipantsNode}
+        details={studentDetailsNode}
+      />
+    )
+  }
 
   const shellGridClass = isTeacher
     ? 'grid min-h-[84vh] gap-4 lg:grid-cols-[24%_minmax(0,1fr)] lg:peer-checked:grid-cols-[30%_minmax(0,1fr)]'
